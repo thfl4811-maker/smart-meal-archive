@@ -1,0 +1,38 @@
+import {neis,send} from './_common.js';
+
+export default async function handler(req,res){
+  try{
+    const office=String(req.query.office||'');
+    const school=String(req.query.school||'');
+    const from=String(req.query.from||'').replaceAll('-','');
+    const to=String(req.query.to||'').replaceAll('-','');
+
+    if(!office||!school||!/^\d{8}$/.test(from)||!/^\d{8}$/.test(to)){
+      return send(res,400,{error:'학교 또는 기간 값이 올바르지 않습니다.'});
+    }
+
+    const start=new Date(`${from.slice(0,4)}-${from.slice(4,6)}-${from.slice(6,8)}T00:00:00`);
+    const end=new Date(`${to.slice(0,4)}-${to.slice(4,6)}-${to.slice(6,8)}T00:00:00`);
+    const days=(end-start)/86400000;
+    if(days<0 || days>370) return send(res,400,{error:'조회 기간은 최대 1년입니다.'});
+
+    const rows=await neis('mealServiceDietInfo',{
+      ATPT_OFCDC_SC_CODE:office,
+      SD_SCHUL_CODE:school,
+      MLSV_FROM_YMD:from,
+      MLSV_TO_YMD:to,
+      MMEAL_SC_CODE:'2',
+      pSize:'1000'
+    });
+
+    send(res,200,rows.map(r=>({
+      date:r.MLSV_YMD,
+      mealName:r.MMEAL_SC_NM,
+      dishes:r.DDISH_NM||'',
+      calories:r.CAL_INFO||'',
+      nutrients:r.NTR_INFO||''
+    })));
+  }catch(error){
+    send(res,500,{error:error.message});
+  }
+}
