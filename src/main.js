@@ -61,33 +61,79 @@ async function loadCloud(){
   persistLocal()}catch(e){console.error('load 실패',e)}
 }
 
-const mainKeywords={
-  soup:['국','탕','찌개','전골','스프'],
-  rice:['밥','라이스','죽'],
-  kimchi:['김치','깍두기','총각','석박지'],
-  dessert:['과일','주스','음료','요구르트','요거트','아이스크림','케이크','쿠키','빵','푸딩','젤리','우유'],
-  main:['갈비','불고기','제육','돈까스','돈가스','닭','치킨','오리','스테이크','장조림','찜','구이','볶음','탕수','강정','생선','고등어','삼치','조기','미트볼','떡갈비','함박','오징어','쭈꾸미','낙지','새우'],
-  side:['무침','나물','샐러드','잡채','전','말이','조림','볶음','튀김','피클','장아찌','묵','두부','계란','달걀','떡볶이']
+/* ══════════════════════════════════════════════════════
+   메뉴 정규화 · 5분류 규칙
+   ▶ 분류가 틀린 메뉴가 있으면 이 블록의 키워드만 고치면
+     리포트·트렌드·조합검색 전체에 반영됩니다.
+   ▶ 판정 순서: 예외 → 밥 → 국·찌개 → 김치 → 주찬(재료) → 후식 → 부찬(폴백)
+══════════════════════════════════════════════════════ */
+const CLASS_RULES={
+  /* 정확히 이 단어가 들어가면 무조건 해당 분류 (최우선) */
+  exception:{
+    rice:['비빔밥','볶음밥','덮밥','국밥','카레라이스','오므라이스','짜장밥','컵밥','주먹밥','김밥','영양밥'],
+    main:['탕수육','닭볶음탕','떡갈비'],
+    dessert:['식혜','수정과','미숫가루']
+  },
+  /* 밥·죽·면 등 주식류 */
+  rice:['밥','죽','리조또','리소토','필라프','국수','칼국수','우동','스파게티','파스타','짜장면','비빔면','냉면','쫄면','라면','짬뽕'],
+  /* 국·찌개 (단, soupExclude 단어가 있으면 제외) */
+  soup:['국','탕','찌개','전골','스프','수프','수제비','장국','짬뽕국','개장'],
+  soupExclude:['탕수','볶음탕','국수','국물떡'],
+  /* 김치류 */
+  kimchi:['김치','깍두기','총각','석박지','동치미','겉절이','나박','백김치'],
+  /* 주찬 판정 재료·요리 (고기·생선·해물 중심) */
+  mainIng:['갈비','불고기','제육','돈까스','돈가스','생선까스','생선가스','치즈까스','왕돈까스','치킨','닭','오리','스테이크','장조림','탕수','강정','고등어','삼치','조기','갈치','꽁치','동태','코다리','임연수','가자미','연어','참치','메로','굴비','장어','생선','미트볼','함박','너비아니','산적','폭찹','깐풍','유린기','오징어','쭈꾸미','주꾸미','낙지','문어','새우','돼지','소고기','쇠고기','한우','우육','돈육','계육','목살','삼겹','햄','소시지','소세지','비엔나','마라','불백','훈제'],
+  /* 후식류 */
+  dessert:['과일','주스','음료','요구르트','요거트','아이스크림','케이크','쿠키','빵','푸딩','젤리','우유','수박','참외','멜론','메론','포도','사과','바나나','파인애플','딸기','오렌지','키위','자두','복숭아','천도','귤','한라봉','망고','에이드','스무디','약과','화채','샤베트','셔벗','라떼'],
+  /* 부찬 판정 (여기 없어도 최종 폴백은 부찬) */
+  side:['무침','나물','샐러드','잡채','전','말이','조림','볶음','튀김','피클','장아찌','묵','두부','계란','달걀','떡볶이','구이','찜','쌈']
 };
-const CAT_LABEL={rice:'주식',soup:'국·찌개',main:'메인요리',side:'부찬',kimchi:'김치류',dessert:'후식'};
+const _normCache=new Map();
+function normalize(s=''){
+  const key=String(s);
+  if(_normCache.has(key))return _normCache.get(key);
+  const n=key
+    .replace(/\([^)]*\)/g,'')
+    .replace(/\[[^\]]*\]/g,'')
+    .replace(/[*#@♥▶►◆■※&]/g,'')
+    .replace(/자율선택|자율메뉴|자율/g,'')
+    .replace(/국내산|국산|친환경|무농약|유기농|저염|저당|Non-GMO|HACCP/gi,'')
+    .replace(/\s+/g,'')
+    .trim();
+  _normCache.set(key,n);
+  return n;
+}
+const _catCache=new Map();
+function classify(name){
+  const n=normalize(name);
+  if(_catCache.has(n))return _catCache.get(n);
+  let cat='side';
+  const R=CLASS_RULES;
+  outer:{
+    for(const [c,words] of Object.entries(R.exception))
+      if(words.some(w=>n.includes(w))){cat=c;break outer}
+    if(R.rice.some(w=>n.includes(w))){cat='rice';break outer}
+    if(R.soup.some(w=>n.includes(w))&&!R.soupExclude.some(w=>n.includes(w))){cat='soup';break outer}
+    if(R.kimchi.some(w=>n.includes(w))){cat='kimchi';break outer}
+    if(R.mainIng.some(w=>n.includes(w))){cat='main';break outer}
+    if(R.dessert.some(w=>n.includes(w))){cat='dessert';break outer}
+    cat='side';
+  }
+  _catCache.set(n,cat);
+  return cat;
+}
+const CAT_LABEL={rice:'밥',soup:'국·찌개',main:'주찬',side:'부찬',kimchi:'김치',dessert:'후식'};
+const CAT_ORDER=['rice','soup','kimchi','main','side'];
 
 function esc(v=''){return String(v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function dateISO(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function oneYearAgo(){const d=new Date();d.setFullYear(d.getFullYear()-1);d.setDate(d.getDate()+1);return dateISO(d)}
 function monthAgo(){const d=new Date();d.setDate(d.getDate()-30);return dateISO(d)}
-function normalize(s=''){return String(s).replace(/\([^)]*\)/g,'').replace(/\[[^\]]*\]/g,'').replace(/[*#@]/g,'').replace(/\s+/g,'').replace(/(국산|친환경|무농약)/g,'').trim()}
 function parseDishes(raw=''){
   return String(raw).split(/<br\s*\/?>|\n/gi).map(v=>v.trim()).filter(Boolean).map(line=>{
     const nums=[...line.matchAll(/\(([\d.]+)\)/g)].flatMap(m=>m[1].split('.').filter(Boolean));
     return {name:line.replace(/\([^)]*\)/g,'').trim(),allergy:[...new Set(nums)]};
   }).filter(x=>x.name);
-}
-function classify(name){
-  const n=normalize(name);
-  for(const k of ['rice','soup','kimchi','dessert']) if(mainKeywords[k].some(w=>n.includes(w))) return k;
-  if(mainKeywords.main.some(w=>n.includes(w))) return 'main';
-  if(mainKeywords.side.some(w=>n.includes(w))) return 'side';
-  return 'side';
 }
 function menuMatches(name,keyword,similar){
   const n=normalize(name),k=normalize(keyword);
@@ -106,7 +152,8 @@ function shell(){
   $('#app').innerHTML=`
   <header class="top"><div class="topin">
     <div class="brand">나의 <span>식단 아카이브</span></div>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+      <span class="soon-badge">🗓 특일 캘린더 · 초안 식단 보드 업데이트 예정</span>
       <div class="school-pill">${state.mine?`${esc(state.mine.schoolName)} · ${esc(state.mine.level)}`:'내 학교 미등록'}</div>
       ${user
         ?`<span class="cloud-tag">☁ ${esc(user.displayName||'')}</span><button class="btn ghost small" id="logoutBtn">로그아웃</button>`
@@ -454,7 +501,7 @@ async function analyzeTrend(){
     const myMenus=new Set();
     rows.filter(r=>state.mine&&r.school.schoolCode===state.mine.schoolCode)
         .forEach(r=>parseDishes(r.dishes).forEach(d=>myMenus.add(normalize(d.name))));
-    const cats={rice:new Map(),soup:new Map(),main:new Map(),side:new Map(),dessert:new Map()};
+    const cats={rice:new Map(),soup:new Map(),kimchi:new Map(),main:new Map(),side:new Map(),dessert:new Map()};
     rows.forEach(r=>parseDishes(r.dishes).forEach(d=>{
       const cat=classify(d.name);
       if(!cats[cat])return;
@@ -462,11 +509,12 @@ async function analyzeTrend(){
     }));
     setStatus(`${targets.length}개교 · 최근 30일 급식 ${rows.length}일 분석 완료`);
     $('#results').innerHTML=`
-      <div class="section-title"><div><h2>🔥 최근 30일 인기 메뉴</h2><p>${targets.map(s=>esc(s.schoolName)).join(', ')}</p></div></div>
-      <div class="analysis" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
-      ${Object.entries(cats).map(([cat,map])=>{
-        const items=[...map.values()].sort((a,b)=>b.count-a.count||b.schools.size-a.schools.size).slice(0,7);
-        return `<div class="card rank-card"><h3>${CAT_LABEL[cat]} TOP</h3>
+      <div class="section-title"><div><h2>🔥 최근 30일 인기 메뉴</h2><p>기준일 ${dateISO(new Date())} · 최근 30일 자동 반영 · ${targets.map(s=>esc(s.schoolName)).join(', ')}</p></div></div>
+      <div class="trend-grid">
+      ${['rice','soup','kimchi','main','side','dessert'].map(cat=>{
+        const map=cats[cat];
+        const items=[...map.values()].sort((a,b)=>b.count-a.count||b.schools.size-a.schools.size).slice(0,30);
+        return `<div class="card rank-card trend-col"><h3>${CAT_LABEL[cat]} TOP 30</h3>
         ${items.length?items.map((x,i)=>{
           const isNew=!myMenus.has(normalize(x.name));
           return `<div class="rank"><span class="num">${i+1}</span><div><b>${esc(x.name)} ${isNew?'<span class="new-badge">✨NEW</span>':''}</b><small>${x.schools.size}개교 · ${x.count}회</small></div></div>`
