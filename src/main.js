@@ -26,6 +26,8 @@ const state={
   scraps:JSON.parse(localStorage.getItem('archive_scraps')||'[]'),   // [{id,folder,title,menus,memo,date,school,stars}]
   ratings:JSON.parse(localStorage.getItem('archive_ratings')||'{}'), // {'YYYY-MM-DD':{stars,memo}}
   folders:JSON.parse(localStorage.getItem('archive_folders')||'["기본"]'),
+  menuMemos:JSON.parse(localStorage.getItem('archive_menu_memos')||'{}'),   // {정규화메뉴명: 메모}
+  reportNote:localStorage.getItem('archive_report_note')||'',
 };
 
 /* ══ 클라우드 동기화 ══ */
@@ -36,14 +38,17 @@ function persistLocal(){
   localStorage.setItem('archive_scraps',JSON.stringify(state.scraps));
   localStorage.setItem('archive_ratings',JSON.stringify(state.ratings));
   localStorage.setItem('archive_folders',JSON.stringify(state.folders));
+  localStorage.setItem('archive_menu_memos',JSON.stringify(state.menuMemos||{}));
+  localStorage.setItem('archive_report_note',state.reportNote||'');
 }
 async function syncCloud(){
   persistLocal();
   if(!user)return;
   try{await setDoc(doc(db,'users',user.uid,'apps','archive'),{
-    mine:state.mine,comparisons:state.comparisons,
-    favorites:[...state.favorites],scraps:state.scraps,
-    ratings:state.ratings,folders:state.folders,
+    mine:state.mine||null,comparisons:state.comparisons||[],
+    favorites:[...state.favorites],scraps:state.scraps||[],
+    ratings:state.ratings||{},folders:state.folders||[],
+    menuMemos:state.menuMemos||{},reportNote:state.reportNote||'',
     updatedAt:new Date().toISOString()
   },{merge:false})}catch(e){console.error('sync 실패',e)}
 }
@@ -58,6 +63,8 @@ async function loadCloud(){
   if(d.scraps)state.scraps=d.scraps;
   if(d.ratings)state.ratings=d.ratings;
   if(d.folders)state.folders=d.folders;
+  if(d.menuMemos)state.menuMemos=d.menuMemos;
+  if(typeof d.reportNote==='string')state.reportNote=d.reportNote;
   persistLocal()}catch(e){console.error('load 실패',e)}
 }
 
@@ -243,9 +250,26 @@ function renderControls(){
   }else if(state.tab==='report'){
     c.innerHTML=`<section class="panel">
       <h2>📊 내 식단 리포트</h2>
-      <p class="help" style="margin:6px 0 12px">최근 1년 내 학교 식단을 분석해 다양성과 활용 패턴을 보여줍니다. 이 리포트는 나에게만 보여요.</p>
-      <button class="btn" id="reportGo">리포트 생성</button>
+      <p class="help" style="margin:6px 0 12px">기간과 키워드를 정해 내 학교 식단을 분석합니다. 이 리포트는 나에게만 보여요. 비교학교를 등록해두면 최근 90일 인기 메뉴 참고 섹션이 함께 나와요.</p>
+      <div class="grid">
+        <div class="field"><label>시작일</label><input id="rFrom" type="date" value="${oneYearAgo()}"></div>
+        <div class="field"><label>종료일</label><input id="rTo" type="date" value="${dateISO(new Date())}"></div>
+        <div class="field"><label>키워드 분석 (선택)</label><input id="rKeyword" placeholder="예: 미역국 — 비우면 전체만"></div>
+        <div class="field"><label>빠른 기간</label>
+          <div class="row" style="gap:6px;flex-wrap:wrap">
+            <button class="btn ghost small" data-quick="30">30일</button>
+            <button class="btn ghost small" data-quick="90">90일</button>
+            <button class="btn ghost small" data-quick="180">6개월</button>
+            <button class="btn ghost small" data-quick="365">1년</button>
+          </div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:13px"><button class="btn" id="reportGo">리포트 생성</button></div>
     </section>`;
+    $$('[data-quick]').forEach(b=>b.onclick=()=>{
+      const d=new Date();d.setDate(d.getDate()-(+b.dataset.quick-1));
+      $('#rFrom').value=dateISO(d);$('#rTo').value=dateISO(new Date());
+    });
     $('#reportGo').onclick=analyzeReport;
   }else if(state.tab==='scrap'){
     renderScrapbook();
@@ -553,42 +577,175 @@ async function analyzeTrend(){
 }
 
 /* ══ 리포트 탭 ══ */
+let _report=null; // 마지막 리포트 데이터 (메모 수정 시 재렌더용)
 async function analyzeReport(){
   if(!state.mine){openSchoolModal('mine');return}
-  setStatus('<span class="loading"></span>최근 1년 내 학교 식단을 분석하고 있습니다.');
-  try{
-    const rows=await fetchMeals(state.mine,oneYearAgo(),dateISO(new Date()));
-    const menuMap=new Map();
-    rows.forEach(r=>parseDishes(r.dishes).forEach(d=>{
-      const key=normalize(d.name);if(!key)return;
-      const v=menuMap.get(key)||{name:d.name,count:0,latest:'',cat:classify(d.name)};
-      v.count++;if(r.date>v.latest)v.latest=r.date;menuMap.set(key,v);
-    }));
-    const all=[...menuMap.values()];
-    const top=all.slice().sort((a,b)=>b.count-a.count).slice(0,10);
-    const threeMonthsAgo=(()=>{const d=new Date();d.setMonth(d.getMonth()-3);return d.toISOString().slice(0,10).replace(/-/g,'')})();
-    const stale=all.filter(x=>x.latest<threeMonthsAgo&&x.count>=2).sort((a,b)=>a.latest.localeCompare(b.latest)).slice(0,10);
-    const ratedDays=Object.entries(state.ratings).filter(([,v])=>v.stars);
-    const highRated=ratedDays.filter(([,v])=>v.stars>=4).length;
-    setStatus(`최근 1년 급식 ${rows.length}일 · 고유 메뉴 ${all.length}개 분석 완료`);
-    $('#results').innerHTML=`
-      <div class="section-title"><div><h2>📊 ${esc(state.mine.schoolName)} 식단 리포트</h2><p>최근 1년 · 나에게만 보이는 분석입니다</p></div></div>
-      <div class="summary">
-        <div class="stat"><span>급식일</span><b>${rows.length}일</b></div>
-        <div class="stat"><span>고유 메뉴</span><b>${all.length}개</b></div>
-        <div class="stat"><span>내가 별점 남긴 날</span><b>${ratedDays.length}일</b></div>
-        <div class="stat"><span>⭐4점 이상</span><b>${highRated}일</b></div>
+  const from=$('#rFrom').value,to=$('#rTo').value,keyword=($('#rKeyword')?.value||'').trim();
+  if(!from||!to){setStatus('기간을 입력하세요.',true);return}
+  const days=(new Date(to)-new Date(from))/86400000;
+  if(days<0||days>370){setStatus('조회 기간은 최대 1년이며 종료일이 시작일보다 늦어야 합니다.',true);return}
+  const today=dateISO(new Date());
+  const d90=(()=>{const d=new Date();d.setDate(d.getDate()-89);return dateISO(d)})();
+  setStatus('<span class="loading"></span>내 학교와 비교학교 식단을 불러오고 있습니다.');
+  const tasks=[
+    fetchMeals(state.mine,from,to),
+    fetchMeals(state.mine,d90,today),
+    ...state.comparisons.map(s=>fetchMeals(s,d90,today))
+  ];
+  const settled=await Promise.allSettled(tasks);
+  if(settled[0].status==='rejected'){setStatus(settled[0].reason.message,true);return}
+  const rows=settled[0].value;
+  const my90=settled[1].status==='fulfilled'?settled[1].value:[];
+  const compRows=[],failedSchools=[];
+  settled.slice(2).forEach((r,i)=>{
+    if(r.status==='fulfilled')compRows.push(...r.value);
+    else failedSchools.push(state.comparisons[i].schoolName);
+  });
+  if(!rows.length){setStatus(`${from} ~ ${to} 기간에 나이스에 등록된 내 학교 식단이 없어 분석할 수 없습니다.`,true);return}
+  _report={rows,my90,compRows,failedSchools,from,to,keyword,today,d90};
+  renderReport();
+}
+
+function renderReport(){
+  const {rows,my90,compRows,failedSchools,from,to,keyword,today,d90}=_report;
+  /* 분류별 집계 */
+  const cats={rice:new Map(),soup:new Map(),kimchi:new Map(),main:new Map(),side:new Map(),dessert:new Map()};
+  const menuMap=new Map();
+  rows.forEach(r=>parseDishes(r.dishes).forEach(d=>{
+    const key=normalize(d.name);if(!key)return;
+    const v=menuMap.get(key)||{name:d.name,count:0,latest:'',cat:classify(d.name)};
+    v.count++;if(r.date>v.latest)v.latest=r.date;menuMap.set(key,v);
+    addCount(cats[v.cat],d,r.school,r.date);
+  }));
+  const all=[...menuMap.values()];
+  /* 오래 안 쓴 메뉴 (종료일 기준 3개월) */
+  const staleLine=(()=>{const d=new Date(to);d.setMonth(d.getMonth()-3);return dateISO(d).replace(/-/g,'')})();
+  const stale=all.filter(x=>x.latest<staleLine&&x.count>=2).sort((a,b)=>a.latest.localeCompare(b.latest)).slice(0,15);
+  /* 별점 */
+  const ratedDays=Object.entries(state.ratings).filter(([k,v])=>v.stars&&k>=from&&k<=to);
+  /* 90일 인기 (내 학교 + 비교학교) */
+  const my90Set=new Set();
+  my90.forEach(r=>parseDishes(r.dishes).forEach(d=>my90Set.add(normalize(d.name))));
+  const all90=[...my90,...compRows];
+  const cats90={rice:new Map(),soup:new Map(),kimchi:new Map(),main:new Map(),side:new Map(),dessert:new Map()};
+  all90.forEach(r=>parseDishes(r.dishes).forEach(d=>{
+    const cat=classify(d.name);if(!cats90[cat])return;
+    addCount(cats90[cat],d,r.school,r.date);
+  }));
+  let refCount=0;
+  Object.values(cats90).forEach(map=>[...map.values()].forEach(x=>{if(!my90Set.has(normalize(x.name))&&x.count>=2)refCount++}));
+  /* 키워드 분석 */
+  let kwHTML='';
+  if(keyword){
+    const hitDays=rows.filter(r=>parseDishes(r.dishes).some(d=>menuMatches(d.name,keyword,true)))
+      .sort((a,b)=>b.date.localeCompare(a.date));
+    const combos=analyzeMeals(rows,keyword,true);
+    /* 월별 추이 */
+    const months=[];{
+      const cur=new Date(+from.slice(0,4),+from.slice(5,7)-1,1),endM=to.slice(0,7);
+      while(dateISO(cur).slice(0,7)<=endM){months.push(dateISO(cur).slice(0,7));cur.setMonth(cur.getMonth()+1)}
+    }
+    const perMonth=Object.fromEntries(months.map(m=>[m,0]));
+    hitDays.forEach(r=>{const m=`${r.date.slice(0,4)}-${r.date.slice(4,6)}`;if(m in perMonth)perMonth[m]++});
+    const maxM=Math.max(1,...Object.values(perMonth));
+    kwHTML=`
+    <div class="section-title"><div><h2>🔍 '${esc(keyword)}' 상세 분석</h2><p>${from} ~ ${to} · 총 ${hitDays.length}회 편성</p></div></div>
+    ${hitDays.length?`
+    <div class="card rank-card" style="margin-bottom:14px"><h3>월별 편성 추이</h3>
+      <div class="bar-chart">${months.map(m=>`<div class="bar-row"><span class="bar-label">${m.slice(2)}</span><div class="bar-track"><div class="bar-fill" style="width:${Math.round(perMonth[m]/maxM*100)}%"></div></div><span class="bar-val">${perMonth[m]}</span></div>`).join('')}</div>
+    </div>
+    <div class="analysis">
+      <div class="card rank-card"><h3>편성한 날짜 (${hitDays.length}일)</h3>
+        <div class="kw-days">${hitDays.map(r=>{
+          const dkey=`${r.date.slice(0,4)}-${r.date.slice(4,6)}-${r.date.slice(6,8)}`;
+          const rt=state.ratings[dkey];
+          return `<div class="kw-day"><b>${formatDate(r.date)}</b>${rt?`<span class="kw-stars">${'★'.repeat(rt.stars)}</span>`:''}</div>`
+        }).join('')}</div>
       </div>
-      <div class="analysis">
-        <div class="card rank-card"><h3>가장 자주 낸 메뉴 TOP 10</h3>
-          ${top.map((x,i)=>`<div class="rank"><span class="num">${i+1}</span><div><b>${esc(x.name)}</b><small>${CAT_LABEL[x.cat]||''} · 최근 ${formatDate(x.latest)}</small></div><strong>${x.count}회</strong></div>`).join('')}
-        </div>
-        <div class="card rank-card"><h3>3개월 넘게 안 쓴 메뉴</h3>
-          ${stale.length?stale.map((x,i)=>`<div class="rank"><span class="num">${i+1}</span><div><b>${esc(x.name)}</b><small>마지막 ${formatDate(x.latest)} · 총 ${x.count}회</small></div></div>`).join(''):'<div class="empty">모든 메뉴를 골고루 쓰고 있어요! 👏</div>'}
-        </div>
+      <div class="card rank-card"><h3>함께 낸 조합 TOP</h3>
+        ${[...combos.main.slice(0,7).map(x=>({...x,t:'주찬'})),...combos.side.slice(0,7).map(x=>({...x,t:'부찬'}))]
+          .sort((a,b)=>b.count-a.count).slice(0,12)
+          .map((x,i)=>`<div class="rank"><span class="num">${i+1}</span><div><b>${esc(x.name)}</b><small>${x.t} · 최근 ${formatDate(x.latest)}</small></div><strong>${x.count}회</strong></div>`).join('')||'<div class="empty">함께 낸 메뉴가 없습니다.</div>'}
       </div>
-      <p class="help" style="margin-top:10px">💡 오래 안 쓴 메뉴는 다음 달 식단에 다시 넣어볼까요? 메뉴 다양성 관리에 활용하세요.</p>`;
-  }catch(e){setStatus(e.message,true)}
+    </div>`:`<div class="empty">이 기간에 '${esc(keyword)}'를 편성한 날이 없습니다.</div>`}`;
+  }
+  /* 학교명 표시 (처음 3개 + 외 N개교 펼치기) */
+  const schoolsHTML=(set,idx)=>{
+    const arr=[...set];
+    if(arr.length<=3)return esc(arr.join(', '));
+    return `<span class="sch-short" data-sch="${idx}">${esc(arr.slice(0,3).join(', '))} <button class="sch-more" data-sch-btn="${idx}">외 ${arr.length-3}개교</button></span><span class="sch-full hidden" data-sch-full="${idx}">${esc(arr.join(', '))}</span>`;
+  };
+  let schIdx=0;
+  /* 분류별 TOP 30 (메모 포함) */
+  const catCols=['rice','soup','kimchi','main','side','dessert'].map(cat=>{
+    const items=[...cats[cat].values()].sort((a,b)=>b.count-a.count).slice(0,30);
+    return `<div class="card rank-card trend-col"><h3>${CAT_LABEL[cat]} TOP 30</h3>
+      ${items.length?items.map((x,i)=>{
+        const key=normalize(x.name);
+        const memo=state.menuMemos[key];
+        return `<div class="rank"><span class="num">${i+1}</span>
+          <div><b>${esc(x.name)}</b><small>${x.count}회 · 최근 ${formatDate(x.latest)}</small>${memo?`<div class="menu-memo">📝 ${esc(memo)}</div>`:''}</div>
+          <button class="memo-btn" data-menu-memo="${esc(key)}" data-menu-name="${esc(x.name)}" title="메뉴 메모">📝</button></div>`
+      }).join(''):'<div class="empty">데이터 없음</div>'}</div>`;
+  }).join('');
+  /* 90일 인기 (비교 참고) */
+  const popCols=['rice','soup','kimchi','main','side','dessert'].map(cat=>{
+    const items=[...cats90[cat].values()].sort((a,b)=>b.count-a.count||b.schools.size-a.schools.size).slice(0,15);
+    return `<div class="card rank-card trend-col"><h3>${CAT_LABEL[cat]}</h3>
+      ${items.length?items.map((x,i)=>{
+        const isNew=!my90Set.has(normalize(x.name));
+        const s=schoolsHTML(x.schools,schIdx++);
+        return `<div class="rank"><span class="num">${i+1}</span><div><b>${esc(x.name)} ${isNew?'<span class="new-badge">✨ 신메뉴 참고</span>':''}</b><small>${x.count}회 · ${x.schools.size}개교 · ${s}</small></div></div>`
+      }).join(''):'<div class="empty">데이터 없음</div>'}</div>`;
+  }).join('');
+  $('#results').innerHTML=`
+    <div class="section-title"><div><h2>📊 ${esc(state.mine.schoolName)} 식단 리포트</h2><p>분석 기간 ${from} ~ ${to} · 기준일 ${today} · 나에게만 보이는 분석입니다</p></div></div>
+    <div class="summary">
+      <div class="stat"><span>급식일</span><b>${rows.length}일</b></div>
+      <div class="stat"><span>고유 메뉴</span><b>${all.length}개</b></div>
+      <div class="stat"><span>별점 기록일</span><b>${ratedDays.length}일</b></div>
+      <div class="stat"><span>비교학교 참고 메뉴</span><b>${refCount}개</b></div>
+    </div>
+    ${failedSchools.length?`<div class="warn">⚠ ${esc(failedSchools.join(', '))} 데이터를 불러오지 못해 해당 학교는 제외하고 분석했어요.</div>`:''}
+    ${kwHTML}
+    <div class="section-title"><div><h2>분류별 자주 낸 메뉴</h2><p>${from} ~ ${to} · 메뉴 옆 📝로 나만의 메모를 남길 수 있어요</p></div></div>
+    <div class="trend-grid">${catCols}</div>
+    ${state.comparisons.length||compRows.length?`
+    <div class="section-title"><div><h2>🔥 최근 90일 인기 메뉴 (비교 참고)</h2><p>${d90} ~ ${today} · 내 학교 + ${state.comparisons.map(s=>esc(s.schoolName)).join(', ')||'비교학교'} · ✨ = 내 학교 최근 90일에 없던 메뉴</p></div></div>
+    <div class="trend-grid">${popCols}</div>`:`
+    <div class="warn" style="margin-top:14px">비교학교를 등록하면 다른 학교 인기 메뉴와 ✨신메뉴 참고를 함께 볼 수 있어요.</div>`}
+    <div class="section-title"><div><h2>3개월 넘게 안 쓴 메뉴</h2><p>종료일(${to}) 기준</p></div></div>
+    <div class="card rank-card">
+      ${stale.length?stale.map((x,i)=>`<div class="rank"><span class="num">${i+1}</span><div><b>${esc(x.name)}</b><small>${CAT_LABEL[x.cat]} · 마지막 ${formatDate(x.latest)} · 총 ${x.count}회</small></div></div>`).join(''):'<div class="empty">모든 메뉴를 골고루 쓰고 있어요! 👏</div>'}
+    </div>
+    <div class="section-title"><div><h2>📝 내 분석 노트</h2><p>자동 저장 · 나에게만 보여요</p></div></div>
+    <div class="card" style="padding:16px">
+      <textarea id="reportNote" placeholder="예: 8월 주찬 반복이 많음. 다음 달엔 생선 메뉴 늘리기." style="width:100%;min-height:100px">${esc(state.reportNote||'')}</textarea>
+      <div class="help" id="noteSaved" style="text-align:right"></div>
+    </div>`;
+  setStatus(`분석 완료 · 급식 ${rows.length}일 · 고유 메뉴 ${all.length}개${keyword?` · '${esc(keyword)}' ${kwHTML.includes('상세 분석')?'분석 포함':''}`:''}`);
+  bindReportEvents();
+}
+function bindReportEvents(){
+  $$('[data-menu-memo]').forEach(b=>b.onclick=()=>{
+    const key=b.dataset.menuMemo,name=b.dataset.menuName;
+    const cur=state.menuMemos[key]||'';
+    const memo=prompt(`'${name}' 메뉴 메모`,cur);
+    if(memo===null)return;
+    if(memo.trim())state.menuMemos[key]=memo.trim();
+    else delete state.menuMemos[key];
+    persist();renderReport();
+  });
+  $$('[data-sch-btn]').forEach(b=>b.onclick=()=>{
+    const i=b.dataset.schBtn;
+    document.querySelector(`[data-sch="${i}"]`).classList.add('hidden');
+    document.querySelector(`[data-sch-full="${i}"]`).classList.remove('hidden');
+  });
+  const ta=$('#reportNote');
+  if(ta){let t;ta.oninput=()=>{clearTimeout(t);t=setTimeout(()=>{
+    state.reportNote=ta.value;persist();
+    const s=$('#noteSaved');if(s){s.textContent='저장됨 ✓';setTimeout(()=>s.textContent='',1500)}
+  },600)}}
 }
 
 function formatDate(v){return v?`${v.slice(0,4)}.${v.slice(4,6)}.${v.slice(6,8)}`:'-'}
