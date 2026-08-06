@@ -111,7 +111,7 @@ textarea:focus{outline:none;border-color:#888}
 }
 .trend-col{padding:14px 12px}
 .trend-col h3{font-size:15px}
-.trend-col .rank{grid-template-columns:24px 1fr;padding:8px 0}
+.trend-col .rank{grid-template-columns:24px 1fr auto;padding:8px 0}
 .trend-col .num{width:22px;height:22px;font-size:12px;border-radius:6px}
 .trend-col .rank b{font-size:13px;word-break:keep-all}
 .trend-col .rank small{font-size:11px}
