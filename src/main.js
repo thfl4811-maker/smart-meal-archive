@@ -467,8 +467,6 @@ function rankCard(title,items){
   return `<div class="card rank-card"><h3>${title}</h3>${items.length?items.map((x,i)=>`<div class="rank"><span class="num">${i+1}</span><div><b>${esc(x.name)}</b><small>${x.schools.size}개교 · 최근 ${x.latest?formatDate(x.latest):'-'}</small></div><strong>${x.count}회</strong></div>`).join(''):'<div class="empty">분류된 메뉴가 없습니다.</div>'}</div>`;
 }
 function mealCard(m,keyword){
-  const id=`${m.school.schoolCode}-${m.date}`;
-  const fav=state.favorites.has(id);
   const isMine=state.mine&&m.school.schoolCode===state.mine.schoolCode;
   const dkey=`${m.date.slice(0,4)}-${m.date.slice(4,6)}-${m.date.slice(6,8)}`;
   const rating=state.ratings[dkey];
@@ -477,14 +475,12 @@ function mealCard(m,keyword){
     <footer>${esc(m.calories||'열량 정보 없음')}</footer>
     ${isMine?`<div class="stars" data-stars="${dkey}">${[1,2,3,4,5].map(n=>`<button class="star ${rating&&rating.stars>=n?'on':''}" data-star="${n}">★</button>`).join('')}<small class="help" style="margin-left:6px">${rating?'내 별점':'내 별점 (나만 보여요)'}</small></div>`:''}
     <div class="row" style="margin-top:11px;gap:6px">
-      <button class="btn ghost small" data-favorite="${id}">${fav?'★ 즐겨찾기':'☆ 즐겨찾기'}</button>
       <button class="btn ghost small" data-scrap-meal='${esc(JSON.stringify({type:'meal',title:m.dishes.map(d=>d.name).slice(0,3).join('·'),menus:m.dishes.map(d=>d.name),date:dkey,school:m.school.schoolName,calories:m.calories||'',sourceType:'식단 카드'}))}'>📌 스크랩</button>
       <button class="btn ghost small" data-copy-meal="${esc(m.dishes.map(d=>d.name).join(' / '))}">복사</button>
     </div>
   </article>`;
 }
 function bindMealCards(){
-  $$('[data-favorite]').forEach(b=>b.onclick=()=>toggleFavorite(b.dataset.favorite,b));
   $$('[data-copy-meal]').forEach(b=>b.onclick=()=>{navigator.clipboard.writeText(b.dataset.copyMeal);alert('복사했습니다.')});
   $$('[data-scrap-meal]').forEach(b=>b.onclick=()=>openScrapModal(JSON.parse(b.dataset.scrapMeal)));
   $$('[data-stars]').forEach(box=>{
@@ -498,11 +494,6 @@ function bindMealCards(){
       box.querySelectorAll('.star').forEach(s2=>s2.classList.toggle('on',state.ratings[dkey]&&state.ratings[dkey].stars>=+s2.dataset.star));
     });
   });
-}
-function toggleFavorite(id,b){
-  state.favorites.has(id)?state.favorites.delete(id):state.favorites.add(id);
-  persist();
-  b.textContent=state.favorites.has(id)?'★ 즐겨찾기':'☆ 즐겨찾기';
 }
 function copySummary(a,keyword){
   const text=[`[${keyword} 식단 조합 분석]`,`주찬: ${a.main.slice(0,10).map(x=>`${x.name} ${x.count}회`).join(', ')}`,`부찬: ${a.side.slice(0,10).map(x=>`${x.name} ${x.count}회`).join(', ')}`,`실제 식단 ${a.meals.length}건`].join('\n');
@@ -670,10 +661,20 @@ function renderScrapbook(){
         <button class="btn ghost small" id="printScraps">🖨 인쇄·PDF (${scrapView.selected.size?'선택':'현재 목록'})</button>
       </div>
     </div>
-    ${list.length?`<div class="meals" style="margin-top:14px">${list.map(scrapCard).join('')}</div>`
+    ${list.length?renderScrapList(list)
       :`<div class="empty" style="margin-top:14px">${state.scraps.length?'조건에 맞는 스크랩이 없어요. 필터를 조정해보세요.':'아직 스크랩이 없어요. 식단 카드의 📌 스크랩 버튼을 눌러보세요!'}</div>`}
   </section>`;
   bindScrapbook(list);
+}
+function renderScrapList(list){
+  if(scrapView.folder!=='전체')return `<div class="meals" style="margin-top:14px">${list.map(scrapCard).join('')}</div>`;
+  const known=new Set(state.folders);
+  const groups=state.folders.map(f=>[f,list.filter(sc=>sc.folder===f)]).filter(([,a])=>a.length);
+  const orphan=list.filter(sc=>!known.has(sc.folder));
+  if(orphan.length)groups.push(['기타',orphan]);
+  return groups.map(([f,arr])=>`
+    <h3 class="scrap-folder-head">📁 ${esc(f)} <small class="help">${arr.length}개</small></h3>
+    <div class="meals">${arr.map(scrapCard).join('')}</div>`).join('');
 }
 function scrapCard(sc){
   const sel=scrapView.selected.has(sc.id);
