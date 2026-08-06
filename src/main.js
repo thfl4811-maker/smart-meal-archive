@@ -145,7 +145,17 @@ function koreanDate(v){return `${v.slice(0,4)}년 ${Number(v.slice(4,6))}월 ${N
 function persist(){syncCloud()}
 
 /* ══ 로그인 UI ══ */
-async function doSignIn(){try{await signInWithPopup(auth,gprov)}catch(e){console.error(e)}}
+async function doSignIn(){
+  try{await signInWithPopup(auth,gprov)}
+  catch(e){
+    console.error(e);
+    const code=e&&e.code||'';
+    if(code==='auth/popup-blocked')alert('브라우저가 팝업을 차단했어요.\n주소창 오른쪽의 팝업 차단 아이콘을 눌러 허용한 뒤 다시 시도해주세요.');
+    else if(code==='auth/unauthorized-domain')alert('이 주소는 Firebase 승인 도메인에 등록되어 있지 않아요.\nFirebase 콘솔 → Authentication → Settings → 승인된 도메인에 localhost를 추가해주세요.');
+    else if(code==='auth/popup-closed-by-user'||code==='auth/cancelled-popup-request'){/* 사용자가 창을 닫음 — 무시 */}
+    else alert('로그인에 실패했어요.\n오류 코드: '+(code||e.message||'알 수 없음')+'\n\n로그인하지 않아도 스크랩·별점은 이 브라우저에 저장돼요.');
+  }
+}
 async function doSignOut(){await signOut(auth)}
 
 function shell(){
@@ -360,11 +370,28 @@ function renderResults(a,keyword,from,to,targets){
       ${rankCard('함께 편성한 주찬',a.main)}
       ${rankCard('함께 편성한 부찬',a.side)}
     </div>
-    <div class="section-title"><div><h2>실제 식단 카드</h2><p>나이스 API에서 검색된 학교별 실제 편성 식단입니다.</p></div></div>
-    <div class="meals">${a.meals.length?a.meals.map(m=>mealCard(m,keyword)).join(''):'<div class="empty">검색 메뉴가 포함된 실제 식단이 없습니다.</div>'}</div>`;
+    <div class="section-title"><div><h2>실제 식단 카드</h2><p>나이스 API에서 검색된 학교별 실제 편성 식단입니다. 내 학교가 맨 왼쪽, 각 학교는 최신 날짜순입니다.</p></div></div>
+    ${renderMealsBySchool(a.meals,targets,keyword)}`;
   $('#copyResult').onclick=()=>copySummary(a,keyword);
   $('#scrapResult').onclick=()=>scrapAnalysis(a,keyword);
   bindMealCards();
+}
+function renderMealsBySchool(meals,targets,keyword){
+  if(!meals.length)return '<div class="empty">검색 메뉴가 포함된 실제 식단이 없습니다.</div>';
+  if(targets.length<2)return `<div class="meals">${meals.map(m=>mealCard(m,keyword)).join('')}</div>`;
+  const bySchool=new Map();
+  targets.forEach(t=>bySchool.set(schoolKey(t),[]));
+  meals.forEach(m=>{const k=schoolKey(m.school);if(!bySchool.has(k))bySchool.set(k,[]);bySchool.get(k).push(m)});
+  return `<div class="school-cols" style="--cols:${targets.length}">
+    ${targets.map(t=>{
+      const items=(bySchool.get(schoolKey(t))||[]).sort((a,b)=>b.date.localeCompare(a.date));
+      const isMine=state.mine&&t.schoolCode===state.mine.schoolCode;
+      return `<div class="school-col">
+        <h3 class="school-col-title">${esc(t.schoolName)} ${isMine?'<span class="mine-tag">내 학교</span>':''}<small class="help" style="margin-left:6px">${items.length}일</small></h3>
+        ${items.length?items.map(m=>mealCard(m,keyword)).join(''):'<div class="empty">해당 기간 편성 없음</div>'}
+      </div>`;
+    }).join('')}
+  </div>`;
 }
 function rankCard(title,items){
   return `<div class="card rank-card"><h3>${title}</h3>${items.length?items.map((x,i)=>`<div class="rank"><span class="num">${i+1}</span><div><b>${esc(x.name)}</b><small>${x.schools.size}개교 · 최근 ${x.latest?formatDate(x.latest):'-'}</small></div><strong>${x.count}회</strong></div>`).join(''):'<div class="empty">분류된 메뉴가 없습니다.</div>'}</div>`;
