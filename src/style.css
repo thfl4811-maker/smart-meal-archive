@@ -118,3 +118,19 @@ textarea:focus{outline:none;border-color:#888}
 @media(max-width:1240px){.trend-grid{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:900px){.trend-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:600px){.trend-grid{grid-template-columns:1fr}}
+
+/* 학교별 식단 카드 세로 열 (내 학교가 맨 왼쪽) */
+.school-cols{
+  display:grid;
+  grid-template-columns:repeat(var(--cols,3),1fr);
+  gap:12px;align-items:start;
+}
+.school-col .meal{margin-bottom:12px}
+.school-col-title{margin:2px 0 10px;font-size:16px}
+.mine-tag{
+  display:inline-block;font-size:11px;font-weight:800;
+  padding:2px 8px;border-radius:999px;vertical-align:middle;
+  background:var(--primary-soft);color:#4047bd;
+}
+@media(max-width:900px){.school-cols{grid-template-columns:1fr 1fr}}
+@media(max-width:600px){.school-cols{grid-template-columns:1fr}}
