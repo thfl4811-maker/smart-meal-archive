@@ -155,3 +155,37 @@ textarea:focus{outline:none;border-color:#888}
 
 /* 학교명 펼치기 */
 .sch-more{border:0;background:transparent;color:var(--primary);font-weight:900;font-size:11px;padding:0;text-decoration:underline}
+
+/* 📌 스크랩북 v2 */
+.folder-chip{border:1px solid var(--line);background:#fff;cursor:pointer}
+.chip-on{background:var(--primary);color:#fff;border-color:var(--primary)}
+.chip-on button{color:#fff}
+.scrap-filter{grid-template-columns:2fr 1.6fr 1.6fr 1fr}
+.type-badge{display:inline-block;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px}
+.tb-meal{background:#e8f6ef;color:#0f6b4d}
+.tb-idea{background:#fff3e0;color:#b25400}
+.scrap-cat{display:grid;grid-template-columns:56px 1fr;gap:6px;padding:5px 8px;border-radius:8px;background:#f7f8fb;margin:4px 0;font-size:13px}
+.scrap-cat span{color:var(--muted);font-weight:800;font-size:12px}
+.scrap-sel{outline:2px solid var(--primary);outline-offset:-1px}
+.folder-row{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:12px;padding:9px 11px;background:#fff}
+@media(max-width:900px){.scrap-filter{grid-template-columns:1fr 1fr}}
+@media(max-width:600px){.scrap-filter{grid-template-columns:1fr}}
+
+/* 🖨 인쇄 (A4 세로) */
+#printArea{display:none}
+@media print{
+  body>*:not(#printArea){display:none!important}
+  #printArea{display:block!important;font-family:Pretendard,"Noto Sans KR",sans-serif;color:#111}
+  #printArea h1{font-size:20px;margin:0 0 2px}
+  #printArea .p-meta{font-size:11px;color:#555;margin:0 0 14px}
+  #printArea h2{font-size:15px;margin:16px 0 8px;border-bottom:1.5px solid #333;padding-bottom:4px}
+  .p-card{border:1px solid #bbb;border-radius:8px;padding:10px 12px;margin-bottom:8px;page-break-inside:avoid}
+  .p-title{font-size:13.5px;font-weight:800}
+  .p-type{font-size:10px;font-weight:700;border:1px solid #888;border-radius:999px;padding:1px 7px;margin-left:4px;vertical-align:1px}
+  .p-stars{color:#b8860b;font-size:12px}
+  .p-sub{font-size:10.5px;color:#555;margin:3px 0 6px}
+  .p-row{display:grid;grid-template-columns:52px 1fr;gap:6px;font-size:11.5px;padding:2px 0}
+  .p-row span{color:#666;font-weight:700}
+  .p-memo{margin-top:5px;font-size:11px;background:#f5f5f5;border-radius:6px;padding:5px 8px}
+  @page{size:A4 portrait;margin:14mm}
+}
