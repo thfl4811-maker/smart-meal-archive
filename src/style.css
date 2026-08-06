@@ -85,3 +85,36 @@ textarea{
   resize:vertical;box-sizing:border-box;
 }
 textarea:focus{outline:none;border-color:#888}
+
+/* 🗓 업데이트 예정 배지 (헤더 우측) */
+.soon-badge{
+  font-size:11px;font-weight:800;
+  padding:5px 10px;border-radius:999px;
+  background:#fff8e8;color:#8b5b00;border:1px solid #fde0a6;
+  white-space:nowrap;
+}
+@media(max-width:900px){
+  .soon-badge{font-size:10px;padding:4px 8px}
+}
+@media(max-width:600px){
+  .soon-badge{
+    order:5;flex-basis:100%;text-align:center;
+    white-space:normal;line-height:1.4;
+  }
+}
+
+/* 🔥 트렌드: 분류별 세로 컬럼 (TOP 30) */
+.trend-grid{
+  display:grid;
+  grid-template-columns:repeat(6,1fr);
+  gap:10px;align-items:start;
+}
+.trend-col{padding:14px 12px}
+.trend-col h3{font-size:15px}
+.trend-col .rank{grid-template-columns:24px 1fr;padding:8px 0}
+.trend-col .num{width:22px;height:22px;font-size:12px;border-radius:6px}
+.trend-col .rank b{font-size:13px;word-break:keep-all}
+.trend-col .rank small{font-size:11px}
+@media(max-width:1240px){.trend-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:900px){.trend-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){.trend-grid{grid-template-columns:1fr}}
