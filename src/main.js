@@ -28,6 +28,7 @@ const state={
   folders:JSON.parse(localStorage.getItem('archive_folders')||'["기본"]'),
   menuMemos:JSON.parse(localStorage.getItem('archive_menu_memos')||'{}'),   // {정규화메뉴명: 메모}
   reportNote:localStorage.getItem('archive_report_note')||'',
+  baseFolder:localStorage.getItem('archive_base_folder')||'기본 폴더',
 };
 
 /* ══ 클라우드 동기화 ══ */
@@ -40,6 +41,7 @@ function persistLocal(){
   localStorage.setItem('archive_folders',JSON.stringify(state.folders));
   localStorage.setItem('archive_menu_memos',JSON.stringify(state.menuMemos||{}));
   localStorage.setItem('archive_report_note',state.reportNote||'');
+  localStorage.setItem('archive_base_folder',state.baseFolder||'기본 폴더');
 }
 async function syncCloud(){
   persistLocal();
@@ -49,6 +51,7 @@ async function syncCloud(){
     favorites:[...state.favorites],scraps:state.scraps||[],
     ratings:state.ratings||{},folders:state.folders||[],
     menuMemos:state.menuMemos||{},reportNote:state.reportNote||'',
+    baseFolder:state.baseFolder||'기본 폴더',
     updatedAt:new Date().toISOString()
   },{merge:false})}catch(e){console.error('sync 실패',e)}
 }
@@ -65,6 +68,7 @@ async function loadCloud(){
   if(d.folders)state.folders=d.folders;
   if(d.menuMemos)state.menuMemos=d.menuMemos;
   if(typeof d.reportNote==='string')state.reportNote=d.reportNote;
+  if(d.baseFolder)state.baseFolder=d.baseFolder;
   persistLocal()}catch(e){console.error('load 실패',e)}
 }
 
@@ -131,6 +135,48 @@ function classify(name){
 }
 const CAT_LABEL={rice:'밥',soup:'국·찌개',main:'주찬',side:'부찬',kimchi:'김치',dessert:'후식'};
 const CAT_ORDER=['rice','soup','kimchi','main','side'];
+
+/* ══ 스크랩북 기본 폴더 (초기 세팅 — 이후 사용자가 자유롭게 수정) ══ */
+const DEFAULT_FOLDERS=['다음 달 식단 후보','계절 식단','특식·행사식','학생 반응 우수','자율선택급식','다른 학교 참고 식단','수다날 식단','다시 활용할 식단','보완이 필요한 식단','기본 폴더'];
+function splitMenus(menus){
+  const g={rice:[],soup:[],kimchi:[],main:[],side:[],dessert:[]};
+  (menus||[]).forEach(m=>{const c=classify(m);(g[c]||g.side).push(m)});
+  return g;
+}
+/* 기존 스크랩 데이터 → 새 구조 마이그레이션 (데이터 손실 없음) */
+function migrateScraps(){
+  let changed=false;
+  if(!Array.isArray(state.folders))state.folders=[];
+  if(!state.baseFolder)state.baseFolder='기본 폴더';
+  if(state.folders.length===0||(state.folders.length===1&&state.folders[0]==='기본')){
+    state.folders=[...DEFAULT_FOLDERS];changed=true;
+  }else{
+    DEFAULT_FOLDERS.forEach(f=>{if(!state.folders.includes(f)){state.folders.push(f);changed=true}});
+    const gi=state.folders.indexOf('기본');
+    if(gi>-1){state.folders.splice(gi,1);changed=true}
+  }
+  if(!state.folders.includes(state.baseFolder)){state.folders.push(state.baseFolder);changed=true}
+  state.scraps=(state.scraps||[]).map(sc=>{
+    if(sc&&sc.schemaV===2)return sc;
+    changed=true;
+    const menus=Array.isArray(sc.menus)?sc.menus:[];
+    const isAnalysis=menus.some(m=>/^주찬:|^부찬:/.test(String(m)))||sc.school==='분석 결과';
+    const base={
+      schemaV:2,
+      id:sc.id||Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+      type:isAnalysis?'idea':'meal',
+      folder:(sc.folder==='기본'||!sc.folder)?state.baseFolder:sc.folder,
+      title:sc.title||'제목 없음',
+      school:sc.school||'',servedDate:sc.date||'',
+      menus,calories:sc.calories||'',stars:sc.stars||0,memo:sc.memo||'',
+      savedAt:sc.savedAt||dateISO(new Date()),
+      sourceType:isAnalysis?'조합 분석':'식단 카드',sourcePeriod:'',snapshot:null
+    };
+    if(base.type==='meal')Object.assign(base,splitMenus(menus));
+    return base;
+  });
+  if(changed)persist();
+}
 
 function esc(v=''){return String(v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function dateISO(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
@@ -432,7 +478,7 @@ function mealCard(m,keyword){
     ${isMine?`<div class="stars" data-stars="${dkey}">${[1,2,3,4,5].map(n=>`<button class="star ${rating&&rating.stars>=n?'on':''}" data-star="${n}">★</button>`).join('')}<small class="help" style="margin-left:6px">${rating?'내 별점':'내 별점 (나만 보여요)'}</small></div>`:''}
     <div class="row" style="margin-top:11px;gap:6px">
       <button class="btn ghost small" data-favorite="${id}">${fav?'★ 즐겨찾기':'☆ 즐겨찾기'}</button>
-      <button class="btn ghost small" data-scrap-meal='${esc(JSON.stringify({title:m.dishes.map(d=>d.name).slice(0,3).join('·'),menus:m.dishes.map(d=>d.name),date:dkey,school:m.school.schoolName}))}'>📌 스크랩</button>
+      <button class="btn ghost small" data-scrap-meal='${esc(JSON.stringify({type:'meal',title:m.dishes.map(d=>d.name).slice(0,3).join('·'),menus:m.dishes.map(d=>d.name),date:dkey,school:m.school.schoolName,calories:m.calories||'',sourceType:'식단 카드'}))}'>📌 스크랩</button>
       <button class="btn ghost small" data-copy-meal="${esc(m.dishes.map(d=>d.name).join(' / '))}">복사</button>
     </div>
   </article>`;
@@ -463,25 +509,38 @@ function copySummary(a,keyword){
   navigator.clipboard.writeText(text);alert('분석 결과를 복사했습니다.');
 }
 function scrapAnalysis(a,keyword){
+  const from=$('#from')?.value||'',to=$('#to')?.value||'';
   openScrapModal({
+    type:'idea',
     title:`'${keyword}' 조합 분석`,
     menus:[`주찬: ${a.main.slice(0,5).map(x=>x.name).join(', ')}`,`부찬: ${a.side.slice(0,5).map(x=>x.name).join(', ')}`],
-    date:dateISO(new Date()),school:'분석 결과'
+    date:dateISO(new Date()),school:'분석 결과',
+    sourceType:'조합 분석',sourcePeriod:from&&to?`${from}~${to}`:''
   });
 }
 
 /* ══ 스크랩 모달 ══ */
 function openScrapModal(item){
   const m=$('#modal');
+  const type=item.type||'meal';
   m.innerHTML=`<div class="modal"><div class="modal-card">
     <h2>📌 스크랩 저장</h2>
-    <p class="help">${esc(item.school)} · ${esc(item.date)}</p>
-    <div class="field" style="margin:10px 0"><label>제목</label><input id="scrapTitle" value="${esc(item.title)}"></div>
+    <p class="help">${esc(item.school||'')} ${item.date?'· '+esc(item.date):''}</p>
+    <div class="field" style="margin:10px 0"><label>유형</label>
+      <div class="row" style="gap:6px">
+        <button class="btn ${type==='meal'?'':'ghost'} small" id="typeMeal">🍱 전체 식단</button>
+        <button class="btn ${type==='idea'?'':'ghost'} small" id="typeIdea">💡 메뉴 아이디어</button>
+      </div>
+    </div>
+    <div class="field" style="margin:10px 0"><label>제목</label><input id="scrapTitle" value="${esc(item.title||'')}"></div>
     <div class="field" style="margin-bottom:10px"><label>폴더</label>
       <div class="row" style="gap:6px">
         <select id="scrapFolder" style="flex:1">${state.folders.map(f=>`<option>${esc(f)}</option>`).join('')}</select>
         <button class="btn ghost small" id="newFolder">+ 새 폴더</button>
       </div>
+    </div>
+    <div class="field" style="margin-bottom:10px"><label>별점 (선택)</label>
+      <div class="stars" id="scrapStars">${[1,2,3,4,5].map(n=>`<button class="star" data-star="${n}">★</button>`).join('')}</div>
     </div>
     <div class="field"><label>메모 (선택)</label><textarea id="scrapMemo" placeholder="예: 학생 반응 좋았음, 배식 편했음" style="width:100%;min-height:70px"></textarea></div>
     <div class="row" style="justify-content:flex-end;gap:8px;margin-top:14px">
@@ -489,6 +548,15 @@ function openScrapModal(item){
       <button class="btn" id="scrapSave">저장</button>
     </div>
   </div></div>`;
+  let curType=type,curStars=0;
+  const paint=()=>{
+    $('#typeMeal').className=`btn ${curType==='meal'?'':'ghost'} small`;
+    $('#typeIdea').className=`btn ${curType==='idea'?'':'ghost'} small`;
+    $$('#scrapStars .star').forEach(b=>b.classList.toggle('on',+b.dataset.star<=curStars));
+  };
+  $('#typeMeal').onclick=()=>{curType='meal';paint()};
+  $('#typeIdea').onclick=()=>{curType='idea';paint()};
+  $$('#scrapStars .star').forEach(b=>b.onclick=()=>{curStars=curStars===+b.dataset.star?0:+b.dataset.star;paint()});
   $('#scrapCancel').onclick=()=>m.innerHTML='';
   $('#newFolder').onclick=()=>{
     const name=prompt('새 폴더 이름');
@@ -496,49 +564,352 @@ function openScrapModal(item){
       $('#scrapFolder').innerHTML=state.folders.map(f=>`<option ${f===name?'selected':''}>${esc(f)}</option>`).join('')}
   };
   $('#scrapSave').onclick=()=>{
-    state.scraps.unshift({
-      id:Date.now().toString(36),
+    const menus=Array.isArray(item.menus)?item.menus:[];
+    const scrap={
+      schemaV:2,
+      id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+      type:curType,
       folder:$('#scrapFolder').value,
-      title:$('#scrapTitle').value.trim()||item.title,
-      menus:item.menus,memo:$('#scrapMemo').value.trim(),
-      date:item.date,school:item.school,savedAt:dateISO(new Date())
-    });
+      title:$('#scrapTitle').value.trim()||item.title||'제목 없음',
+      school:item.school||'',servedDate:item.date||'',
+      menus,calories:item.calories||'',stars:curStars,memo:$('#scrapMemo').value.trim(),
+      savedAt:dateISO(new Date()),
+      sourceType:item.sourceType||'식단 카드',sourcePeriod:item.sourcePeriod||'',
+      snapshot:item.snapshot||null
+    };
+    if(curType==='meal')Object.assign(scrap,splitMenus(menus));
+    state.scraps.unshift(scrap);
     persist();m.innerHTML='';alert('📌 스크랩했습니다!');
+    if(state.tab==='scrap')renderScrapbook();
   };
+}
+function bindIdeaScraps(){
+  $$('[data-scrap-idea]').forEach(b=>b.onclick=e=>{
+    e.stopPropagation();
+    openScrapModal(JSON.parse(b.dataset.scrapIdea));
+  });
 }
 
 /* ══ 스크랩북 탭 ══ */
+const scrapView={q:'',scope:'all',folder:'전체',type:'all',stars:0,from:'',to:'',sort:'savedAt',selected:new Set()};
+function scrapText(sc,scope){
+  const j=a=>(a||[]).join(' ');
+  switch(scope){
+    case 'rice':return j(sc.rice);case 'soup':return j(sc.soup);case 'kimchi':return j(sc.kimchi);
+    case 'main':return j(sc.main);case 'side':return j(sc.side);case 'dessert':return j(sc.dessert);
+    case 'school':return sc.school||'';
+    default:return [sc.title,j(sc.menus),sc.school,sc.memo].join(' ');
+  }
+}
+function filteredScraps(){
+  const v=scrapView,q=v.q.trim();
+  let list=state.scraps.filter(sc=>{
+    if(v.folder!=='전체'&&sc.folder!==v.folder)return false;
+    if(v.type!=='all'&&sc.type!==v.type)return false;
+    if(v.stars&&(sc.stars||0)<v.stars)return false;
+    if(v.from&&(!sc.servedDate||sc.servedDate<v.from))return false;
+    if(v.to&&(!sc.servedDate||sc.servedDate>v.to))return false;
+    if(q&&!scrapText(sc,v.scope).replace(/\s+/g,'').includes(q.replace(/\s+/g,'')))return false;
+    return true;
+  });
+  const dir={savedAt:(a,b)=>String(b.savedAt).localeCompare(String(a.savedAt)),
+    servedDate:(a,b)=>String(b.servedDate).localeCompare(String(a.servedDate)),
+    stars:(a,b)=>(b.stars||0)-(a.stars||0),
+    title:(a,b)=>String(a.title).localeCompare(String(b.title),'ko')};
+  return list.sort(dir[v.sort]||dir.savedAt);
+}
 function renderScrapbook(){
   const c=$('#controls');
-  const byFolder={};
-  state.folders.forEach(f=>byFolder[f]=[]);
-  state.scraps.forEach(s=>{(byFolder[s.folder]=byFolder[s.folder]||[]).push(s)});
+  scrapView.selected=new Set([...scrapView.selected].filter(id=>state.scraps.some(sc=>sc.id===id)));
+  const list=filteredScraps();
+  const counts={};state.scraps.forEach(sc=>counts[sc.folder]=(counts[sc.folder]||0)+1);
   c.innerHTML=`<section class="panel">
-    <div class="row" style="justify-content:space-between"><h2>📌 내 스크랩북</h2><span class="help">${state.scraps.length}개 저장 · ${user?'☁ 클라우드 동기화 중':'⚠ 로그인하면 클라우드에 저장돼요'}</span></div>
-    ${state.scraps.length?Object.entries(byFolder).filter(([,v])=>v.length).map(([folder,items])=>`
-      <h3 style="margin:16px 0 8px">📁 ${esc(folder)} <small class="help">${items.length}개</small></h3>
-      <div class="meals">${items.map(s=>`
-        <article class="card meal">
-          <div class="date">${esc(s.date)}</div><div class="school">${esc(s.school)}</div>
-          <b style="display:block;margin:4px 0">${esc(s.title)}</b>
-          ${s.menus.map(mn=>`<div class="dish">${esc(mn)}</div>`).join('')}
-          ${s.memo?`<div class="memo">📝 ${esc(s.memo)}</div>`:''}
-          <div class="row" style="margin-top:10px;gap:6px">
-            <button class="btn ghost small" data-edit-memo="${s.id}">메모 수정</button>
-            <button class="btn ghost small" data-del-scrap="${s.id}">삭제</button>
-          </div>
-        </article>`).join('')}</div>
-    `).join(''):'<div class="empty" style="margin-top:14px">아직 스크랩이 없어요. 식단 검색 결과에서 📌 스크랩 버튼을 눌러보세요!</div>'}
+    <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <h2 style="margin:0">📌 내 스크랩북</h2>
+      <div class="row" style="gap:6px;flex-wrap:wrap">
+        <span class="help" style="margin:0">${state.scraps.length}개 저장 · ${user?'☁ 클라우드 동기화 중':'⚠ 로그인하면 클라우드에 저장돼요'}</span>
+        <button class="btn ghost small" id="folderManage">📁 폴더 관리</button>
+        <button class="btn ghost small" id="jsonBackup">JSON 백업</button>
+        <button class="btn ghost small" id="jsonRestore">JSON 복원</button>
+      </div>
+    </div>
+    <div class="chips" style="margin:12px 0 4px">
+      <button class="chip folder-chip ${scrapView.folder==='전체'?'chip-on':''}" data-fchip="전체">전체 ${state.scraps.length}</button>
+      ${state.folders.map(f=>`<button class="chip folder-chip ${scrapView.folder===f?'chip-on':''}" data-fchip="${esc(f)}">${esc(f)} ${counts[f]||0}</button>`).join('')}
+    </div>
+    <div class="grid scrap-filter">
+      <div class="field"><label>검색</label>
+        <div class="row" style="gap:6px">
+          <select id="svScope" style="width:96px">${[['all','전체'],['rice','밥'],['soup','국·찌개'],['kimchi','김치'],['main','주찬'],['side','부찬'],['dessert','후식'],['school','학교명']].map(([v,l])=>`<option value="${v}" ${scrapView.scope===v?'selected':''}>${l}</option>`).join('')}</select>
+          <input id="svQ" placeholder="메뉴·제목·메모 검색" value="${esc(scrapView.q)}" style="flex:1;min-width:0">
+        </div>
+      </div>
+      <div class="field"><label>유형 / 별점</label>
+        <div class="row" style="gap:6px">
+          <select id="svType" style="flex:1"><option value="all" ${scrapView.type==='all'?'selected':''}>모든 유형</option><option value="meal" ${scrapView.type==='meal'?'selected':''}>🍱 전체 식단</option><option value="idea" ${scrapView.type==='idea'?'selected':''}>💡 메뉴 아이디어</option></select>
+          <select id="svStars" style="flex:1">${[0,1,2,3,4,5].map(n=>`<option value="${n}" ${scrapView.stars===n?'selected':''}>${n?'★'.repeat(n)+' 이상':'별점 전체'}</option>`).join('')}</select>
+        </div>
+      </div>
+      <div class="field"><label>제공일 범위</label>
+        <div class="row" style="gap:6px">
+          <input id="svFrom" type="date" value="${scrapView.from}" style="flex:1;min-width:0">
+          <input id="svTo" type="date" value="${scrapView.to}" style="flex:1;min-width:0">
+        </div>
+      </div>
+      <div class="field"><label>정렬</label>
+        <select id="svSort">${[['savedAt','저장일순'],['servedDate','제공일순'],['stars','별점순'],['title','제목순']].map(([v,l])=>`<option value="${v}" ${scrapView.sort===v?'selected':''}>${l}</option>`).join('')}</select>
+      </div>
+    </div>
+    <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:12px">
+      <label class="help" style="margin:0;display:flex;align-items:center;gap:6px"><input type="checkbox" id="svAll" ${list.length&&list.every(sc=>scrapView.selected.has(sc.id))?'checked':''}> 현재 목록 전체 선택 (${list.length}개)</label>
+      <div class="row" style="gap:6px;flex-wrap:wrap">
+        ${scrapView.selected.size?`<span class="help" style="margin:0;font-weight:900;color:#4047bd">${scrapView.selected.size}개 선택</span>
+        <button class="btn ghost small" id="selMove">폴더 이동</button>
+        <button class="btn danger small" id="selDel">삭제</button>`:''}
+        <button class="btn ghost small" id="csvExport">CSV 내보내기 (${scrapView.selected.size?'선택':'현재 목록'})</button>
+        <button class="btn ghost small" id="printScraps">🖨 인쇄·PDF (${scrapView.selected.size?'선택':'현재 목록'})</button>
+      </div>
+    </div>
+    ${list.length?`<div class="meals" style="margin-top:14px">${list.map(scrapCard).join('')}</div>`
+      :`<div class="empty" style="margin-top:14px">${state.scraps.length?'조건에 맞는 스크랩이 없어요. 필터를 조정해보세요.':'아직 스크랩이 없어요. 식단 카드의 📌 스크랩 버튼을 눌러보세요!'}</div>`}
   </section>`;
+  bindScrapbook(list);
+}
+function scrapCard(sc){
+  const sel=scrapView.selected.has(sc.id);
+  const catRow=(label,arr)=>arr&&arr.length?`<div class="scrap-cat"><span>${label}</span><b>${esc(arr.join(', '))}</b></div>`:'';
+  return `<article class="card meal scrap-item ${sel?'scrap-sel':''}">
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+      <label style="display:flex;gap:8px;align-items:center;cursor:pointer">
+        <input type="checkbox" data-sel="${sc.id}" ${sel?'checked':''}>
+        <span class="type-badge ${sc.type==='meal'?'tb-meal':'tb-idea'}">${sc.type==='meal'?'🍱 전체 식단':'💡 아이디어'}</span>
+      </label>
+      <span class="help" style="margin:0">📁 ${esc(sc.folder)}</span>
+    </div>
+    <b style="display:block;margin:7px 0 2px;font-size:15px">${esc(sc.title)}</b>
+    <div class="school">${esc(sc.school||'')} ${sc.servedDate?'· '+esc(sc.servedDate):''} ${sc.calories?'· '+esc(sc.calories):''}</div>
+    ${sc.type==='meal'?`
+      ${catRow('밥',sc.rice)}${catRow('국·찌개',sc.soup)}${catRow('김치',sc.kimchi)}${catRow('주찬',sc.main)}${catRow('부찬',sc.side)}${catRow('후식',sc.dessert)}`
+    :`${(sc.menus||[]).map(mn=>`<div class="dish">${esc(mn)}</div>`).join('')}
+      ${sc.snapshot?`<div class="help" style="margin-top:6px">${sc.snapshot.count?esc(String(sc.snapshot.count))+'회':''} ${sc.snapshot.schools?'· '+esc(sc.snapshot.schools.slice(0,3).join(', '))+(sc.snapshot.schools.length>3?' 외 '+(sc.snapshot.schools.length-3)+'개교':''):''} ${sc.snapshot.asOf?'· '+esc(sc.snapshot.asOf)+' 기준':''}</div>`:''}`}
+    <div class="stars" data-scrap-stars="${sc.id}">${[1,2,3,4,5].map(n=>`<button class="star ${(sc.stars||0)>=n?'on':''}" data-star="${n}">★</button>`).join('')}</div>
+    ${sc.memo?`<div class="memo">📝 ${esc(sc.memo)}</div>`:''}
+    <div class="help" style="margin-top:6px">저장 ${esc(sc.savedAt)} · ${esc(sc.sourceType||'')}${sc.sourcePeriod?' · '+esc(sc.sourcePeriod):''}</div>
+    <div class="row" style="margin-top:10px;gap:6px;flex-wrap:wrap">
+      <button class="btn ghost small" data-edit-memo="${sc.id}">메모</button>
+      <button class="btn ghost small" data-move-scrap="${sc.id}">폴더 이동</button>
+      <button class="btn ghost small" data-del-scrap="${sc.id}">삭제</button>
+    </div>
+  </article>`;
+}
+function bindScrapbook(list){
+  $$('[data-fchip]').forEach(b=>b.onclick=()=>{scrapView.folder=b.dataset.fchip;renderScrapbook()});
+  const upd=()=>renderScrapbook();
+  $('#svQ').oninput=e=>{scrapView.q=e.target.value;clearTimeout(window._svT);window._svT=setTimeout(upd,350)};
+  $('#svScope').onchange=e=>{scrapView.scope=e.target.value;upd()};
+  $('#svType').onchange=e=>{scrapView.type=e.target.value;upd()};
+  $('#svStars').onchange=e=>{scrapView.stars=+e.target.value;upd()};
+  $('#svFrom').onchange=e=>{scrapView.from=e.target.value;upd()};
+  $('#svTo').onchange=e=>{scrapView.to=e.target.value;upd()};
+  $('#svSort').onchange=e=>{scrapView.sort=e.target.value;upd()};
+  $('#svAll').onchange=e=>{
+    if(e.target.checked)list.forEach(sc=>scrapView.selected.add(sc.id));
+    else list.forEach(sc=>scrapView.selected.delete(sc.id));
+    upd();
+  };
+  $$('[data-sel]').forEach(cb=>cb.onchange=()=>{
+    cb.checked?scrapView.selected.add(cb.dataset.sel):scrapView.selected.delete(cb.dataset.sel);
+    renderScrapbook();
+  });
+  $$('[data-scrap-stars]').forEach(box=>{
+    const id=box.dataset.scrapStars;
+    box.querySelectorAll('.star').forEach(st=>st.onclick=()=>{
+      const sc=state.scraps.find(x=>x.id===id);if(!sc)return;
+      const n=+st.dataset.star;
+      sc.stars=sc.stars===n?0:n;
+      persist();renderScrapbook();
+    });
+  });
   $$('[data-del-scrap]').forEach(b=>b.onclick=()=>{
     if(!confirm('이 스크랩을 삭제할까요?'))return;
-    state.scraps=state.scraps.filter(s=>s.id!==b.dataset.delScrap);persist();renderScrapbook();
+    state.scraps=state.scraps.filter(sc=>sc.id!==b.dataset.delScrap);persist();renderScrapbook();
   });
   $$('[data-edit-memo]').forEach(b=>b.onclick=()=>{
-    const s=state.scraps.find(x=>x.id===b.dataset.editMemo);
-    const memo=prompt('메모 수정',s.memo||'');
-    if(memo!==null){s.memo=memo;persist();renderScrapbook()}
+    const sc=state.scraps.find(x=>x.id===b.dataset.editMemo);
+    const memo=prompt('메모 수정',sc.memo||'');
+    if(memo!==null){sc.memo=memo.trim();persist();renderScrapbook()}
   });
+  $$('[data-move-scrap]').forEach(b=>b.onclick=()=>moveScraps([b.dataset.moveScrap]));
+  const selBtn=$('#selMove');if(selBtn)selBtn.onclick=()=>moveScraps([...scrapView.selected]);
+  const selDel=$('#selDel');if(selDel)selDel.onclick=()=>{
+    if(!confirm(`선택한 ${scrapView.selected.size}개 스크랩을 삭제할까요?`))return;
+    state.scraps=state.scraps.filter(sc=>!scrapView.selected.has(sc.id));
+    scrapView.selected.clear();persist();renderScrapbook();
+  };
+  $('#folderManage').onclick=openFolderModal;
+  $('#csvExport').onclick=()=>exportCSV(scrapView.selected.size?state.scraps.filter(sc=>scrapView.selected.has(sc.id)):list);
+  $('#printScraps').onclick=()=>printScraps(scrapView.selected.size?state.scraps.filter(sc=>scrapView.selected.has(sc.id)):list);
+  $('#jsonBackup').onclick=backupJSON;
+  $('#jsonRestore').onclick=openRestoreModal;
+}
+function moveScraps(ids){
+  const name=prompt('이동할 폴더 이름을 그대로 입력하세요:\n'+state.folders.join(' / '));
+  if(name===null)return;
+  const f=name.trim();
+  if(!state.folders.includes(f)){alert('없는 폴더예요. 폴더 관리에서 먼저 만들어주세요.');return}
+  state.scraps.forEach(sc=>{if(ids.includes(sc.id))sc.folder=f});
+  persist();renderScrapbook();
+}
+/* ══ 폴더 관리 ══ */
+function openFolderModal(){
+  const m=$('#modal');
+  const counts={};state.scraps.forEach(sc=>counts[sc.folder]=(counts[sc.folder]||0)+1);
+  m.innerHTML=`<div class="modal"><div class="modal-card">
+    <h2>📁 폴더 관리</h2>
+    <p class="help">순서 변경(↑↓), 이름 변경(✏), 삭제(🗑)가 가능해요. <b>${esc(state.baseFolder)}</b>는 삭제된 폴더의 스크랩을 받는 기본 폴더라 삭제할 수 없어요(이름 변경은 가능).</p>
+    <div id="folderList" class="school-results" style="max-height:320px">
+      ${state.folders.map((f,i)=>`<div class="folder-row">
+        <b style="flex:1">${esc(f)} <small class="help">${counts[f]||0}개</small> ${f===state.baseFolder?'<span class="mine-tag">기본</span>':''}</b>
+        <button class="btn ghost small" data-fup="${i}" ${i===0?'disabled':''}>↑</button>
+        <button class="btn ghost small" data-fdown="${i}" ${i===state.folders.length-1?'disabled':''}>↓</button>
+        <button class="btn ghost small" data-fren="${i}">✏</button>
+        <button class="btn ghost small" data-fdel="${i}" ${f===state.baseFolder?'disabled':''}>🗑</button>
+      </div>`).join('')}
+    </div>
+    <div class="searchrow"><input id="newFolderName" placeholder="새 폴더 이름"><button class="btn" id="addFolder">추가</button></div>
+    <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn ghost" id="closeModal">닫기</button></div>
+  </div></div>`;
+  $('#closeModal').onclick=()=>{m.innerHTML='';renderScrapbook()};
+  $('#addFolder').onclick=()=>{
+    const name=$('#newFolderName').value.trim();
+    if(!name)return;
+    if(state.folders.includes(name)){alert('이미 있는 폴더예요.');return}
+    state.folders.push(name);persist();openFolderModal();
+  };
+  $$('[data-fup]').forEach(b=>b.onclick=()=>{const i=+b.dataset.fup;[state.folders[i-1],state.folders[i]]=[state.folders[i],state.folders[i-1]];persist();openFolderModal()});
+  $$('[data-fdown]').forEach(b=>b.onclick=()=>{const i=+b.dataset.fdown;[state.folders[i+1],state.folders[i]]=[state.folders[i],state.folders[i+1]];persist();openFolderModal()});
+  $$('[data-fren]').forEach(b=>b.onclick=()=>{
+    const i=+b.dataset.fren,old=state.folders[i];
+    const name=prompt('새 이름',old);
+    if(!name||name.trim()===old)return;
+    const nn=name.trim();
+    if(state.folders.includes(nn)){alert('이미 있는 폴더예요.');return}
+    state.folders[i]=nn;
+    state.scraps.forEach(sc=>{if(sc.folder===old)sc.folder=nn});
+    if(state.baseFolder===old)state.baseFolder=nn;
+    persist();openFolderModal();
+  });
+  $$('[data-fdel]').forEach(b=>b.onclick=()=>{
+    const i=+b.dataset.fdel,f=state.folders[i];
+    if(f===state.baseFolder)return;
+    const inside=state.scraps.filter(sc=>sc.folder===f);
+    if(inside.length){
+      if(confirm(`'${f}' 폴더에 스크랩 ${inside.length}개가 있어요.\n\n[확인] = 스크랩을 '${state.baseFolder}'(으)로 옮기고 폴더만 삭제\n[취소] = 다음 단계에서 함께 삭제 여부 선택`)){
+        inside.forEach(sc=>sc.folder=state.baseFolder);
+      }else if(confirm(`정말 스크랩 ${inside.length}개를 폴더와 함께 삭제할까요? 되돌릴 수 없어요.`)){
+        state.scraps=state.scraps.filter(sc=>sc.folder!==f);
+      }else return;
+    }else if(!confirm(`'${f}' 폴더를 삭제할까요?`))return;
+    state.folders.splice(i,1);
+    if(scrapView.folder===f)scrapView.folder='전체';
+    persist();openFolderModal();
+  });
+}
+/* ══ CSV 내보내기 (엑셀에서 바로 열려요) ══ */
+function csvCell(v){v=String(v??'');return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}
+function exportCSV(items){
+  if(!items.length){alert('내보낼 스크랩이 없어요.');return}
+  const head=['폴더','유형','식단 제목','학교명','제공일','밥','국·찌개','김치','주찬','부찬','후식','전체 식단','열량','별점','메모','저장일','원본 유형','분석 기간'];
+  const j=a=>(a||[]).join(' / ');
+  const rows=items.map(sc=>[
+    sc.folder,sc.type==='meal'?'전체 식단':'메뉴 아이디어',sc.title,sc.school,sc.servedDate,
+    j(sc.rice),j(sc.soup),j(sc.kimchi),j(sc.main),j(sc.side),j(sc.dessert),
+    j(sc.menus),sc.calories,sc.stars||'',sc.memo,sc.savedAt,sc.sourceType,sc.sourcePeriod
+  ].map(csvCell).join(','));
+  const csv='\uFEFF'+head.map(csvCell).join(',')+'\n'+rows.join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  a.download=`나의식단스크랩_${dateISO(new Date())}.csv`;
+  a.click();URL.revokeObjectURL(a.href);
+}
+/* ══ 인쇄 · PDF ══ */
+function printScraps(items){
+  if(!items.length){alert('인쇄할 스크랩이 없어요.');return}
+  let area=$('#printArea');
+  if(!area){area=document.createElement('div');area.id='printArea';document.body.appendChild(area)}
+  const byFolder={};
+  items.forEach(sc=>{(byFolder[sc.folder]=byFolder[sc.folder]||[]).push(sc)});
+  const j=a=>(a||[]).join(', ');
+  area.innerHTML=`<h1>나의 식단 스크랩</h1><p class="p-meta">출력일 ${dateISO(new Date())} · ${items.length}개</p>
+  ${Object.entries(byFolder).map(([f,arr])=>`<h2>📁 ${esc(f)} (${arr.length})</h2>
+    ${arr.map(sc=>`<div class="p-card">
+      <div class="p-title">${esc(sc.title)} <span class="p-type">${sc.type==='meal'?'전체 식단':'메뉴 아이디어'}</span>${sc.stars?` <span class="p-stars">${'★'.repeat(sc.stars)}</span>`:''}</div>
+      <div class="p-sub">${esc(sc.school||'')} ${sc.servedDate?'· '+esc(sc.servedDate):''} ${sc.calories?'· '+esc(sc.calories):''} · 저장 ${esc(sc.savedAt)} · ${esc(sc.sourceType||'')}</div>
+      ${sc.type==='meal'
+        ?['rice','soup','kimchi','main','side','dessert'].filter(k=>sc[k]&&sc[k].length).map(k=>`<div class="p-row"><span>${CAT_LABEL[k]}</span>${esc(j(sc[k]))}</div>`).join('')
+        :`<div class="p-row"><span>메뉴</span>${esc(j(sc.menus))}</div>`}
+      ${sc.memo?`<div class="p-memo">📝 ${esc(sc.memo)}</div>`:''}
+    </div>`).join('')}`).join('')}`;
+  window.print();
+}
+/* ══ JSON 백업 · 복원 ══ */
+function backupJSON(){
+  const data={app:'meal-archive-scraps',version:2,exportedAt:new Date().toISOString(),
+    folders:state.folders,baseFolder:state.baseFolder,scraps:state.scraps};
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
+  a.download=`나의식단스크랩_백업_${dateISO(new Date())}.json`;
+  a.click();URL.revokeObjectURL(a.href);
+}
+function openRestoreModal(){
+  const m=$('#modal');
+  m.innerHTML=`<div class="modal"><div class="modal-card">
+    <h2>JSON 복원</h2>
+    <p class="help">이 앱에서 백업한 JSON 파일만 복원할 수 있어요.</p>
+    <input type="file" id="restoreFile" accept=".json,application/json" style="margin:12px 0">
+    <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap">
+      <button class="btn" id="restoreMerge">기존 자료와 합치기</button>
+      <button class="btn danger" id="restoreReplace">전체 교체</button>
+      <button class="btn ghost" id="closeModal">닫기</button>
+    </div>
+    <div class="help" style="margin-top:10px">합치기: 같은 스크랩(id 기준)은 건너뛰어 중복을 막아요.<br>전체 교체: 현재 스크랩·폴더를 백업 파일 내용으로 완전히 바꿔요.</div>
+  </div></div>`;
+  $('#closeModal').onclick=()=>m.innerHTML='';
+  const readFile=()=>new Promise((res,rej)=>{
+    const f=$('#restoreFile').files[0];
+    if(!f)return rej(new Error('파일을 먼저 선택해주세요.'));
+    const r=new FileReader();
+    r.onload=()=>{try{res(JSON.parse(r.result))}catch{rej(new Error('JSON 형식이 아니에요. 올바른 백업 파일인지 확인해주세요.'))}};
+    r.onerror=()=>rej(new Error('파일을 읽지 못했어요.'));
+    r.readAsText(f);
+  });
+  const validate=d=>{
+    if(!d||d.app!=='meal-archive-scraps'||!Array.isArray(d.scraps))throw new Error('이 앱의 백업 파일이 아니에요.');
+    return d;
+  };
+  $('#restoreMerge').onclick=async()=>{
+    try{
+      const d=validate(await readFile());
+      const existing=new Set(state.scraps.map(sc=>sc.id));
+      let added=0;
+      d.scraps.forEach(sc=>{if(sc&&sc.id&&!existing.has(sc.id)){state.scraps.push(sc);added++}});
+      (d.folders||[]).forEach(f=>{if(!state.folders.includes(f))state.folders.push(f)});
+      migrateScraps();persist();m.innerHTML='';
+      alert(`복원 완료! ${added}개를 추가했어요. (중복 ${d.scraps.length-added}개 건너뜀)`);
+      renderScrapbook();
+    }catch(e){alert(e.message)}
+  };
+  $('#restoreReplace').onclick=async()=>{
+    try{
+      const d=validate(await readFile());
+      if(!confirm(`현재 스크랩 ${state.scraps.length}개를 모두 지우고 백업의 ${d.scraps.length}개로 교체할까요?`))return;
+      state.scraps=d.scraps;
+      state.folders=Array.isArray(d.folders)&&d.folders.length?d.folders:[...DEFAULT_FOLDERS];
+      if(d.baseFolder)state.baseFolder=d.baseFolder;
+      migrateScraps();persist();m.innerHTML='';
+      alert('전체 교체 완료!');renderScrapbook();
+    }catch(e){alert(e.message)}
+  };
 }
 
 /* ══ 트렌드 탭 ══ */
@@ -568,11 +939,13 @@ async function analyzeTrend(){
         return `<div class="card rank-card trend-col"><h3>${CAT_LABEL[cat]} TOP 30</h3>
         ${items.length?items.map((x,i)=>{
           const isNew=!myMenus.has(normalize(x.name));
-          return `<div class="rank"><span class="num">${i+1}</span><div><b>${esc(x.name)} ${isNew?'<span class="new-badge">✨NEW</span>':''}</b><small>${x.schools.size}개교 · ${x.count}회</small></div></div>`
+          const idea=esc(JSON.stringify({type:'idea',title:x.name,menus:[x.name],date:dateISO(new Date()),school:[...x.schools].slice(0,3).join(', '),sourceType:'요즘 뜨는 메뉴',sourcePeriod:`${monthAgo()}~${dateISO(new Date())}`,snapshot:{count:x.count,schools:[...x.schools],asOf:dateISO(new Date())}}));
+          return `<div class="rank"><span class="num">${i+1}</span><div><b>${esc(x.name)} ${isNew?'<span class="new-badge">✨NEW</span>':''}</b><small>${x.schools.size}개교 · ${x.count}회</small></div><button class="memo-btn" data-scrap-idea='${idea}' title="메뉴 아이디어로 스크랩">📌</button></div>`
         }).join(''):'<div class="empty">데이터 없음</div>'}</div>`;
       }).join('')}
       </div>
       <p class="help" style="margin-top:10px">✨NEW = 최근 30일 내 학교 식단에 없었던 메뉴예요. 새 아이디어로 참고해보세요!</p>`;
+    bindIdeaScraps();
   }catch(e){setStatus(e.message,true)}
 }
 
@@ -695,7 +1068,8 @@ function renderReport(){
       ${items.length?items.map((x,i)=>{
         const isNew=!my90Set.has(normalize(x.name));
         const s=schoolsHTML(x.schools,schIdx++);
-        return `<div class="rank"><span class="num">${i+1}</span><div><b>${esc(x.name)} ${isNew?'<span class="new-badge">✨ 신메뉴 참고</span>':''}</b><small>${x.count}회 · ${x.schools.size}개교 · ${s}</small></div></div>`
+        const idea=esc(JSON.stringify({type:'idea',title:x.name,menus:[x.name],date:today,school:[...x.schools].slice(0,3).join(', '),sourceType:'90일 인기 메뉴',sourcePeriod:`${d90}~${today}`,snapshot:{count:x.count,schools:[...x.schools],asOf:today}}));
+        return `<div class="rank"><span class="num">${i+1}</span><div><b>${esc(x.name)} ${isNew?'<span class="new-badge">✨ 신메뉴 참고</span>':''}</b><small>${x.count}회 · ${x.schools.size}개교 · ${s}</small></div><button class="memo-btn" data-scrap-idea='${idea}' title="메뉴 아이디어로 스크랩">📌</button></div>`
       }).join(''):'<div class="empty">데이터 없음</div>'}</div>`;
   }).join('');
   $('#results').innerHTML=`
@@ -725,6 +1099,7 @@ function renderReport(){
     </div>`;
   setStatus(`분석 완료 · 급식 ${rows.length}일 · 고유 메뉴 ${all.length}개${keyword?` · '${esc(keyword)}' ${kwHTML.includes('상세 분석')?'분석 포함':''}`:''}`);
   bindReportEvents();
+  bindIdeaScraps();
 }
 function bindReportEvents(){
   $$('[data-menu-memo]').forEach(b=>b.onclick=()=>{
@@ -755,5 +1130,6 @@ function setStatus(msg,error=false){$('#status').innerHTML=`<div class="status $
 onAuthStateChanged(auth,async u=>{
   user=u;
   if(u)await loadCloud();
+  migrateScraps();
   shell();
 });
