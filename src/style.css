@@ -37,3 +37,51 @@ button,input,select{font:inherit}button{cursor:pointer}
 .loading{display:inline-block;width:17px;height:17px;border:2px solid #ddd;border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-3px;margin-right:6px}@keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:900px){.grid{grid-template-columns:1fr 1fr}.school-layout,.analysis{grid-template-columns:1fr}.summary{grid-template-columns:1fr 1fr}.meals{grid-template-columns:1fr 1fr}}
 @media(max-width:600px){.wrap{padding:16px 13px 40px}.topin{padding:12px 13px}.hero{padding:21px}.hero h1{font-size:27px}.grid,.summary,.meals{grid-template-columns:1fr}.tabs{overflow:auto}.tab{white-space:nowrap}.school-pill{max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+/* 로그인 상태 표시 */
+.cloud-tag{
+  font-size:12px;font-weight:600;
+  padding:5px 10px;border-radius:999px;
+  background:rgba(255,255,255,.15);color:#fff;
+  white-space:nowrap;
+}
+
+/* 작은 버튼 (기존에 .btn.small이 있으면 이 블록은 지워도 됩니다) */
+.btn.small{padding:6px 12px;font-size:12px}
+
+/* 탭이 5개로 늘어나서 좁은 화면 대응 */
+.tabs{flex-wrap:wrap;gap:6px}
+
+/* ⭐ 별점 (내 학교 식단 카드) */
+.stars{display:flex;align-items:center;gap:2px;margin-top:10px}
+.star{
+  background:none;border:none;cursor:pointer;
+  font-size:20px;line-height:1;padding:0 1px;
+  color:#d7d7d7;transition:color .15s,transform .1s;
+}
+.star:hover{transform:scale(1.15)}
+.star.on{color:#f5b301}
+
+/* ✨NEW 배지 (요즘 뜨는 메뉴) */
+.new-badge{
+  display:inline-block;margin-left:4px;
+  font-size:10px;font-weight:800;
+  padding:2px 7px;border-radius:999px;
+  background:#fff3e0;color:#e65100;
+  vertical-align:middle;
+}
+
+/* 📝 스크랩 메모 */
+.memo{
+  margin-top:8px;padding:8px 10px;
+  border-radius:8px;background:#fffbe6;
+  font-size:12.5px;line-height:1.5;color:#5c4b00;
+  word-break:keep-all;
+}
+
+/* 스크랩 모달 textarea */
+textarea{
+  font:inherit;padding:9px 11px;
+  border:1px solid #ddd;border-radius:9px;
+  resize:vertical;box-sizing:border-box;
+}
+textarea:focus{outline:none;border-color:#888}
