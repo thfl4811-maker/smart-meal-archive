@@ -134,3 +134,24 @@ textarea:focus{outline:none;border-color:#888}
 }
 @media(max-width:900px){.school-cols{grid-template-columns:1fr 1fr}}
 @media(max-width:600px){.school-cols{grid-template-columns:1fr}}
+
+/* 📊 리포트: 키워드 월별 추이 */
+.bar-chart{display:grid;gap:6px}
+.bar-row{display:grid;grid-template-columns:44px 1fr 28px;gap:8px;align-items:center}
+.bar-label{font-size:11px;color:var(--muted);font-weight:800}
+.bar-track{height:14px;background:#eef0f6;border-radius:7px;overflow:hidden}
+.bar-fill{height:100%;background:var(--primary);border-radius:7px;min-width:0}
+.bar-val{font-size:12px;font-weight:900;text-align:right}
+
+/* 키워드 편성 날짜 목록 */
+.kw-days{display:grid;gap:4px;max-height:340px;overflow:auto}
+.kw-day{display:flex;justify-content:space-between;align-items:center;padding:7px 9px;border-radius:9px;background:#f7f8fb;font-size:13px}
+.kw-stars{color:#f5b301;font-size:13px;letter-spacing:1px}
+
+/* 메뉴 메모 */
+.memo-btn{border:0;background:transparent;font-size:14px;opacity:.35;padding:2px}
+.memo-btn:hover{opacity:1}
+.menu-memo{margin-top:3px;font-size:11.5px;color:#5c4b00;background:#fffbe6;border-radius:7px;padding:4px 7px;word-break:keep-all}
+
+/* 학교명 펼치기 */
+.sch-more{border:0;background:transparent;color:var(--primary);font-weight:900;font-size:11px;padding:0;text-decoration:underline}
