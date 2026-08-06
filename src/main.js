@@ -1092,6 +1092,19 @@ function renderReport(){
     <div class="card rank-card">
       ${stale.length?stale.map((x,i)=>`<div class="rank"><span class="num">${i+1}</span><div><b>${esc(x.name)}</b><small>${CAT_LABEL[x.cat]} · 마지막 ${formatDate(x.latest)} · 총 ${x.count}회</small></div></div>`).join(''):'<div class="empty">모든 메뉴를 골고루 쓰고 있어요! 👏</div>'}
     </div>
+    <div class="section-title"><div><h2>⭐ 별점 · 📝 메모 모아보기</h2><p>내가 남긴 기록만 모았어요 · 나에게만 보여요</p></div></div>
+    <div class="analysis">
+      <div class="card rank-card"><h3>⭐ 별점 기록 (${ratedDays.length}일)</h3>
+        ${ratedDays.length?`<div class="kw-days">${ratedDays.sort((a,b)=>b[0].localeCompare(a[0])).map(([dk,v])=>`<div class="kw-day"><b>${dk}</b><span class="kw-stars">${'★'.repeat(v.stars)}</span></div>`).join('')}</div>`
+          :'<div class="empty">아직 별점이 없어요.<br>내 식단 아카이브 탭에서 내 학교 식단 카드에 별점을 남기면 여기에 모여요.</div>'}
+      </div>
+      <div class="card rank-card"><h3>📝 메뉴 메모 (${Object.keys(state.menuMemos).length}개)</h3>
+        ${Object.keys(state.menuMemos).length?Object.entries(state.menuMemos).map(([k,memo])=>`
+          <div class="rank"><span style="width:4px"></span><div><b>${esc(k)}</b><div class="menu-memo">📝 ${esc(memo)}</div></div>
+          <button class="memo-btn" data-menu-memo="${esc(k)}" data-menu-name="${esc(k)}" title="수정">✏</button></div>`).join('')
+          :'<div class="empty">아직 메뉴 메모가 없어요.<br>위 TOP 30에서 메뉴 옆 📝를 눌러 남겨보세요.</div>'}
+      </div>
+    </div>
     <div class="section-title"><div><h2>📝 내 분석 노트</h2><p>자동 저장 · 나에게만 보여요</p></div></div>
     <div class="card" style="padding:16px">
       <textarea id="reportNote" placeholder="예: 8월 주찬 반복이 많음. 다음 달엔 생선 메뉴 늘리기." style="width:100%;min-height:100px">${esc(state.reportNote||'')}</textarea>
