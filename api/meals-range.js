@@ -11,10 +11,25 @@ export default async function handler(req,res){
       return send(res,400,{error:'학교 또는 기간 값이 올바르지 않습니다.'});
     }
 
-    const start=new Date(`${from.slice(0,4)}-${from.slice(4,6)}-${from.slice(6,8)}T00:00:00`);
-    const end=new Date(`${to.slice(0,4)}-${to.slice(4,6)}-${to.slice(6,8)}T00:00:00`);
-    const days=(end-start)/86400000;
-    if(days<0 || days>370) return send(res,400,{error:'조회 기간은 최대 1년입니다.'});
+    const start=new Date(
+      `${from.slice(0,4)}-${from.slice(4,6)}-${from.slice(6,8)}T00:00:00`
+    );
+
+    const end=new Date(
+      `${to.slice(0,4)}-${to.slice(4,6)}-${to.slice(6,8)}T00:00:00`
+    );
+
+    if(end < start){
+      return send(res,400,{error:'종료일은 시작일보다 빠를 수 없습니다.'});
+    }
+
+    // 최대 조회기간 3년
+    const minDate=new Date(end);
+    minDate.setFullYear(minDate.getFullYear()-3);
+
+    if(start < minDate){
+      return send(res,400,{error:'조회 기간은 최대 3년입니다.'});
+    }
 
     const rows=await neis('mealServiceDietInfo',{
       ATPT_OFCDC_SC_CODE:office,
@@ -32,6 +47,7 @@ export default async function handler(req,res){
       calories:r.CAL_INFO||'',
       nutrients:r.NTR_INFO||''
     })));
+
   }catch(error){
     send(res,500,{error:error.message});
   }
