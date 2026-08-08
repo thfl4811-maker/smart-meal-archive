@@ -13,6 +13,7 @@ const fbApp = initializeApp({
 });
 const auth=getAuth(fbApp), db=getFirestore(fbApp), gprov=new GoogleAuthProvider();
 let user=null;
+let cloudReady=false;
 
 const $=s=>document.querySelector(s);
 const $$=s=>[...document.querySelectorAll(s)];
@@ -23,15 +24,18 @@ const state={
   similar:true,
   loaded:[],
   favorites:new Set(JSON.parse(localStorage.getItem('archive_favorites')||'[]')),
-  scraps:JSON.parse(localStorage.getItem('archive_scraps')||'[]'),   // [{id,folder,title,menus,memo,date,school,stars}]
-  ratings:JSON.parse(localStorage.getItem('archive_ratings')||'{}'), // {'YYYY-MM-DD':{stars,memo}}
+  scraps:JSON.parse(localStorage.getItem('archive_scraps')||'[]'),
+  ratings:JSON.parse(localStorage.getItem('archive_ratings')||'{}'),
   folders:JSON.parse(localStorage.getItem('archive_folders')||'["기본"]'),
-  menuMemos:JSON.parse(localStorage.getItem('archive_menu_memos')||'{}'),   // {정규화메뉴명: 메모}
+  menuMemos:JSON.parse(localStorage.getItem('archive_menu_memos')||'{}'),
   reportNote:localStorage.getItem('archive_report_note')||'',
   baseFolder:localStorage.getItem('archive_base_folder')||'기본 폴더',
 };
 
-/* ══ 클라우드 동기화 ══ */
+/* ══ 클라우드 동기화
+   최초 로그인: Firestore 문서가 없을 때 현재 브라우저 로컬 자료를 1회 이관
+   이후 로그인: Firestore 자료를 기준으로 사용
+══════════════════════════════════════════════════════ */
 function persistLocal(){
   localStorage.setItem('archive_my_school',JSON.stringify(state.mine));
   localStorage.setItem('archive_compare_schools',JSON.stringify(state.comparisons));
@@ -43,33 +47,75 @@ function persistLocal(){
   localStorage.setItem('archive_report_note',state.reportNote||'');
   localStorage.setItem('archive_base_folder',state.baseFolder||'기본 폴더');
 }
-async function syncCloud(){
-  persistLocal();
-  if(!user)return;
-  try{await setDoc(doc(db,'users',user.uid,'apps','archive'),{
-    mine:state.mine||null,comparisons:state.comparisons||[],
-    favorites:[...state.favorites],scraps:state.scraps||[],
-    ratings:state.ratings||{},folders:state.folders||[],
-    menuMemos:state.menuMemos||{},reportNote:state.reportNote||'',
+
+function cloudPayload(){
+  return {
+    mine:state.mine||null,
+    comparisons:state.comparisons||[],
+    favorites:[...state.favorites],
+    scraps:state.scraps||[],
+    ratings:state.ratings||{},
+    folders:state.folders||[],
+    menuMemos:state.menuMemos||{},
+    reportNote:state.reportNote||'',
     baseFolder:state.baseFolder||'기본 폴더',
     updatedAt:new Date().toISOString()
-  },{merge:false})}catch(e){console.error('sync 실패',e)}
+  };
 }
-async function loadCloud(){
+
+async function syncCloud(){
+  persistLocal();
+  if(!user||!cloudReady)return;
+  try{
+    await setDoc(
+      doc(db,'users',user.uid,'apps','archive'),
+      cloudPayload(),
+      {merge:false}
+    );
+  }catch(e){
+    console.error('클라우드 저장 실패',e);
+  }
+}
+
+function applyCloudData(d){
+  state.mine=d.mine||null;
+  state.comparisons=Array.isArray(d.comparisons)?d.comparisons:[];
+  state.favorites=new Set(Array.isArray(d.favorites)?d.favorites:[]);
+  state.scraps=Array.isArray(d.scraps)?d.scraps:[];
+  state.ratings=d.ratings||{};
+  state.folders=Array.isArray(d.folders)?d.folders:[];
+  state.menuMemos=d.menuMemos||{};
+  state.reportNote=typeof d.reportNote==='string'?d.reportNote:'';
+  state.baseFolder=d.baseFolder||'기본 폴더';
+  persistLocal();
+}
+
+async function initializeCloudForUser(){
   if(!user)return;
-  try{const s=await getDoc(doc(db,'users',user.uid,'apps','archive'));
-  if(!s.exists())return;
-  const d=s.data();
-  if(d.mine)state.mine=d.mine;
-  if(d.comparisons)state.comparisons=d.comparisons;
-  if(d.favorites)state.favorites=new Set(d.favorites);
-  if(d.scraps)state.scraps=d.scraps;
-  if(d.ratings)state.ratings=d.ratings;
-  if(d.folders)state.folders=d.folders;
-  if(d.menuMemos)state.menuMemos=d.menuMemos;
-  if(typeof d.reportNote==='string')state.reportNote=d.reportNote;
-  if(d.baseFolder)state.baseFolder=d.baseFolder;
-  persistLocal()}catch(e){console.error('load 실패',e)}
+  cloudReady=false;
+  const ref=doc(db,'users',user.uid,'apps','archive');
+
+  try{
+    const snap=await getDoc(ref);
+
+    if(snap.exists()){
+      // 두 번째 로그인부터는 클라우드 자료가 기준
+      applyCloudData(snap.data());
+    }else{
+      // 최초 로그인 때만 현재 브라우저 로컬 자료를 한 번 업로드
+      await setDoc(ref,{
+        ...cloudPayload(),
+        migrationVersion:1,
+        migratedFromLocal:true,
+        createdAt:new Date().toISOString()
+      },{merge:false});
+    }
+
+    cloudReady=true;
+  }catch(e){
+    cloudReady=false;
+    console.error('초기 클라우드 동기화 실패',e);
+  }
 }
 
 /* ══════════════════════════════════════════════════════
@@ -180,8 +226,57 @@ function migrateScraps(){
 
 function esc(v=''){return String(v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function dateISO(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
-function oneYearAgo(){const d=new Date();d.setFullYear(d.getFullYear()-1);d.setDate(d.getDate()+1);return dateISO(d)}
-function monthAgo(){const d=new Date();d.setDate(d.getDate()-30);return dateISO(d)}
+const MAX_RANGE_YEARS=3;
+
+function yearsAgo(years,base=new Date()){
+  const d=new Date(base);
+  d.setFullYear(d.getFullYear()-years);
+  d.setDate(d.getDate()+1);
+  return dateISO(d);
+}
+function threeYearsAgo(){return yearsAgo(3)}
+function daysAgo(days){
+  const d=new Date();
+  d.setDate(d.getDate()-(days-1));
+  return dateISO(d);
+}
+function validateRange(from,to){
+  if(!from||!to)return '시작일과 종료일을 입력하세요.';
+  const start=new Date(`${from}T00:00:00`);
+  const end=new Date(`${to}T00:00:00`);
+  if(Number.isNaN(start.getTime())||Number.isNaN(end.getTime()))return '기간 값이 올바르지 않습니다.';
+  if(end<start)return '종료일은 시작일보다 빠를 수 없습니다.';
+  const min=new Date(end);
+  min.setFullYear(min.getFullYear()-MAX_RANGE_YEARS);
+  if(start<min)return '조회 기간은 최대 3년입니다.';
+  return '';
+}
+function quickRangeButtons(fromId,toId){
+  return `<div class="row" style="gap:6px;flex-wrap:wrap">
+    <button class="btn ghost small" data-range-days="30" data-from="${fromId}" data-to="${toId}">30일</button>
+    <button class="btn ghost small" data-range-days="90" data-from="${fromId}" data-to="${toId}">90일</button>
+    <button class="btn ghost small" data-range-days="180" data-from="${fromId}" data-to="${toId}">6개월</button>
+    <button class="btn ghost small" data-range-years="1" data-from="${fromId}" data-to="${toId}">1년</button>
+    <button class="btn ghost small" data-range-years="2" data-from="${fromId}" data-to="${toId}">2년</button>
+    <button class="btn ghost small" data-range-years="3" data-from="${fromId}" data-to="${toId}">3년</button>
+  </div>`;
+}
+function bindQuickRanges(onChanged){
+  $$('[data-range-days]').forEach(b=>b.onclick=()=>{
+    const f=document.getElementById(b.dataset.from),t=document.getElementById(b.dataset.to);
+    if(!f||!t)return;
+    f.value=daysAgo(+b.dataset.rangeDays);
+    t.value=dateISO(new Date());
+    if(onChanged)onChanged(f.value,t.value);
+  });
+  $$('[data-range-years]').forEach(b=>b.onclick=()=>{
+    const f=document.getElementById(b.dataset.from),t=document.getElementById(b.dataset.to);
+    if(!f||!t)return;
+    f.value=yearsAgo(+b.dataset.rangeYears);
+    t.value=dateISO(new Date());
+    if(onChanged)onChanged(f.value,t.value);
+  });
+}
 function parseDishes(raw=''){
   return String(raw).split(/<br\s*\/?>|\n/gi).map(v=>v.trim()).filter(Boolean).map(line=>{
     const nums=[...line.matchAll(/\(([\d.]+)\)/g)].flatMap(m=>m[1].split('.').filter(Boolean));
@@ -204,7 +299,7 @@ async function doSignIn(){
     console.error(e);
     const code=e&&e.code||'';
     if(code==='auth/popup-blocked')alert('브라우저가 팝업을 차단했어요.\n주소창 오른쪽의 팝업 차단 아이콘을 눌러 허용한 뒤 다시 시도해주세요.');
-    else if(code==='auth/unauthorized-domain')alert('이 주소는 Firebase 승인 도메인에 등록되어 있지 않아요.\nFirebase 콘솔 → Authentication → Settings → 승인된 도메인에 localhost를 추가해주세요.');
+    else if(code==='auth/unauthorized-domain')alert('이 주소는 Firebase 승인 도메인에 등록되어 있지 않아요.\nFirebase 콘솔 → Authentication → Settings → 승인된 도메인에 smart-meal-archive.vercel.app 을 추가해주세요.');
     else if(code==='auth/popup-closed-by-user'||code==='auth/cancelled-popup-request'){/* 사용자가 창을 닫음 — 무시 */}
     else alert('로그인에 실패했어요.\n오류 코드: '+(code||e.message||'알 수 없음')+'\n\n로그인하지 않아도 스크랩·별점은 이 브라우저에 저장돼요.');
   }
@@ -250,25 +345,29 @@ function shell(){
 function commonFields(){
   return `
   <div class="grid">
-    <div class="field"><label>시작일</label><input id="from" type="date" value="${oneYearAgo()}"></div>
+    <div class="field"><label>시작일</label><input id="from" type="date" value="${threeYearsAgo()}"></div>
     <div class="field"><label>종료일</label><input id="to" type="date" value="${dateISO(new Date())}"></div>
     <div class="field"><label>기준 메뉴</label><input id="keyword" value="미역국" placeholder="예: 미역국"></div>
     <div class="field"><label>분석 방식</label><select id="mode"><option value="all">주찬·부찬 모두</option><option value="main">주찬 중심</option><option value="side">부찬 중심</option></select></div>
   </div>
+  <div class="field" style="margin-top:10px"><label>빠른 기간</label>${quickRangeButtons('from','to')}</div>
   <div class="toggleline"><button class="toggle ${state.similar?'on':''}" id="similar"></button><span>비슷한 메뉴 포함</span></div>`;
 }
 
 function renderControls(){
   const c=$('#controls');$('#status').innerHTML='';$('#results').innerHTML='';
+
   if(state.tab==='mine'){
     c.innerHTML=`<section class="panel">
       <div class="row" style="justify-content:space-between"><h2>내 학교 식단 검색</h2><button class="btn ghost small" id="changeMine">학교 변경</button></div>
       ${commonFields()}
       <div class="searchrow"><input disabled value="${state.mine?esc(state.mine.schoolName):'먼저 내 학교를 등록하세요.'}"><button class="btn" id="analyze">실제 식단 분석</button></div>
-      <div class="help">조회 기간은 최대 1년입니다. 나이스에 등록된 중식 자료를 검색합니다.</div>
+      <div class="help">조회 기간은 최대 3년입니다. 원하는 기간의 나이스 중식 자료를 검색합니다.</div>
     </section>`;
     $('#changeMine').onclick=()=>openSchoolModal('mine');
-    bindCommon();$('#analyze').onclick=analyze;
+    bindCommon();
+    $('#analyze').onclick=analyze;
+
   }else if(state.tab==='compare'){
     c.innerHTML=`<section class="panel">
       <div class="row" style="justify-content:space-between"><h2>경기도 내 같은 학교급 비교</h2><button class="btn ghost small" id="addSchool">비교학교 찾기</button></div>
@@ -278,51 +377,54 @@ function renderControls(){
       </div>
       ${commonFields()}
       <div class="searchrow"><input disabled value="내 학교와 비교학교의 실제 식단을 함께 분석합니다."><button class="btn" id="analyze">비교 분석</button></div>
-      <div class="warn">분석 대상은 내 학교 1개와 비교학교 최대 3개입니다.</div>
+      <div class="warn">내 학교 1개 + 같은 학교급 비교학교 최대 3개 · 조회 기간 최대 3년</div>
     </section>`;
     $('#addSchool').onclick=()=>openSchoolModal('compare');
     $$('[data-remove-school]').forEach(b=>b.onclick=()=>{
-      state.comparisons=state.comparisons.filter(s=>schoolKey(s)!==b.dataset.removeSchool);persist();renderControls();
+      state.comparisons=state.comparisons.filter(s=>schoolKey(s)!==b.dataset.removeSchool);
+      persist();renderControls();
     });
-    bindCommon();$('#analyze').onclick=analyze;
+    bindCommon();
+    $('#analyze').onclick=analyze;
+
   }else if(state.tab==='trend'){
     c.innerHTML=`<section class="panel">
-      <h2>🔥 요즘 뜨는 메뉴 (최근 30일)</h2>
-      <p class="help" style="margin:6px 0 12px">내 학교와 비교학교의 최근 한 달 식단을 분석해 카테고리별 인기 메뉴를 보여줍니다. 내 학교에 없는 메뉴는 ✨NEW로 표시돼요.</p>
+      <h2>🔥 요즘 뜨는 메뉴</h2>
+      <p class="help" style="margin:6px 0 12px">내 학교와 비교학교의 실제 식단을 선택한 기간 동안 분석합니다. 최대 3년까지 볼 수 있고, 같은 기간 내 학교에 없었던 메뉴는 ✨NEW로 표시해요.</p>
       <div class="chips" style="margin-bottom:12px">${[state.mine,...state.comparisons].filter(Boolean).map(s=>`<span class="chip">${esc(s.schoolName)}</span>`).join('')||'<span class="help">학교를 등록하세요</span>'}</div>
-      <button class="btn" id="trendGo">트렌드 분석</button>
+      <div class="grid">
+        <div class="field"><label>시작일</label><input id="tFrom" type="date" value="${threeYearsAgo()}"></div>
+        <div class="field"><label>종료일</label><input id="tTo" type="date" value="${dateISO(new Date())}"></div>
+        <div class="field"><label>빠른 기간</label>${quickRangeButtons('tFrom','tTo')}</div>
+      </div>
+      <div class="row" style="margin-top:13px"><button class="btn" id="trendGo">트렌드 분석</button></div>
     </section>`;
+    bindQuickRanges();
     $('#trendGo').onclick=analyzeTrend;
+
   }else if(state.tab==='report'){
     c.innerHTML=`<section class="panel">
       <h2>📊 내 식단 리포트</h2>
-      <p class="help" style="margin:6px 0 12px">기간과 키워드를 정해 내 학교 식단을 분석합니다. 이 리포트는 나에게만 보여요. 비교학교를 등록해두면 최근 90일 인기 메뉴 참고 섹션이 함께 나와요.</p>
+      <p class="help" style="margin:6px 0 12px">기간과 키워드를 정해 내 학교 식단을 분석합니다. 최대 3년까지 조회할 수 있으며, 비교학교 참고 메뉴도 같은 선택 기간을 기준으로 분석합니다.</p>
       <div class="grid">
-        <div class="field"><label>시작일</label><input id="rFrom" type="date" value="${oneYearAgo()}"></div>
+        <div class="field"><label>시작일</label><input id="rFrom" type="date" value="${threeYearsAgo()}"></div>
         <div class="field"><label>종료일</label><input id="rTo" type="date" value="${dateISO(new Date())}"></div>
         <div class="field"><label>키워드 분석 (선택)</label><input id="rKeyword" placeholder="예: 미역국 — 비우면 전체만"></div>
-        <div class="field"><label>빠른 기간</label>
-          <div class="row" style="gap:6px;flex-wrap:wrap">
-            <button class="btn ghost small" data-quick="30">30일</button>
-            <button class="btn ghost small" data-quick="90">90일</button>
-            <button class="btn ghost small" data-quick="180">6개월</button>
-            <button class="btn ghost small" data-quick="365">1년</button>
-          </div>
-        </div>
+        <div class="field"><label>빠른 기간</label>${quickRangeButtons('rFrom','rTo')}</div>
       </div>
       <div class="row" style="margin-top:13px"><button class="btn" id="reportGo">리포트 생성</button></div>
     </section>`;
-    $$('[data-quick]').forEach(b=>b.onclick=()=>{
-      const d=new Date();d.setDate(d.getDate()-(+b.dataset.quick-1));
-      $('#rFrom').value=dateISO(d);$('#rTo').value=dateISO(new Date());
-    });
+    bindQuickRanges();
     $('#reportGo').onclick=analyzeReport;
+
   }else if(state.tab==='scrap'){
     renderScrapbook();
   }
 }
+
 function bindCommon(){
   $('#similar').onclick=()=>{state.similar=!state.similar;$('#similar').classList.toggle('on',state.similar)};
+  bindQuickRanges();
 }
 
 function schoolChip(s,removable){
@@ -387,8 +489,8 @@ async function analyze(){
   if(!state.mine){openSchoolModal('mine');return}
   const from=$('#from').value,to=$('#to').value,keyword=$('#keyword').value.trim();
   if(!from||!to||!keyword){setStatus('기간과 기준 메뉴를 입력하세요.',true);return}
-  const days=(new Date(to)-new Date(from))/86400000;
-  if(days<0||days>370){setStatus('조회 기간은 최대 1년이며 종료일이 시작일보다 늦어야 합니다.',true);return}
+  const rangeError=validateRange(from,to);
+  if(rangeError){setStatus(rangeError,true);return}
   const targets=state.tab==='mine'?[state.mine]:[state.mine,...state.comparisons];
   if(state.tab==='compare'&&!state.comparisons.length){setStatus('비교학교를 한 곳 이상 선택하세요.',true);return}
   $('#results').innerHTML='';
@@ -582,7 +684,7 @@ function bindIdeaScraps(){
 }
 
 /* ══ 스크랩북 탭 ══ */
-const scrapView={q:'',scope:'all',folder:'전체',type:'all',stars:0,from:'',to:'',sort:'savedAt',selected:new Set()};
+const scrapView={q:'',scope:'all',folder:'전체',type:'all',stars:0,from:threeYearsAgo(),to:dateISO(new Date()),sort:'savedAt',selected:new Set()};
 function scrapText(sc,scope){
   const j=a=>(a||[]).join(' ');
   switch(scope){
@@ -647,6 +749,7 @@ function renderScrapbook(){
           <input id="svTo" type="date" value="${scrapView.to}" style="flex:1;min-width:0">
         </div>
       </div>
+      <div class="field"><label>빠른 기간</label>${quickRangeButtons('svFrom','svTo')}</div>
       <div class="field"><label>정렬</label>
         <select id="svSort">${[['savedAt','저장일순'],['servedDate','제공일순'],['stars','별점순'],['title','제목순']].map(([v,l])=>`<option value="${v}" ${scrapView.sort===v?'selected':''}>${l}</option>`).join('')}</select>
       </div>
@@ -710,8 +813,16 @@ function bindScrapbook(list){
   $('#svScope').onchange=e=>{scrapView.scope=e.target.value;upd()};
   $('#svType').onchange=e=>{scrapView.type=e.target.value;upd()};
   $('#svStars').onchange=e=>{scrapView.stars=+e.target.value;upd()};
-  $('#svFrom').onchange=e=>{scrapView.from=e.target.value;upd()};
-  $('#svTo').onchange=e=>{scrapView.to=e.target.value;upd()};
+  $('#svFrom').onchange=e=>{
+    const err=validateRange(e.target.value,$('#svTo').value);
+    if(err){alert(err);e.target.value=scrapView.from;return}
+    scrapView.from=e.target.value;upd();
+  };
+  $('#svTo').onchange=e=>{
+    const err=validateRange($('#svFrom').value,e.target.value);
+    if(err){alert(err);e.target.value=scrapView.to;return}
+    scrapView.to=e.target.value;upd();
+  };
   $('#svSort').onchange=e=>{scrapView.sort=e.target.value;upd()};
   $('#svAll').onchange=e=>{
     if(e.target.checked)list.forEach(sc=>scrapView.selected.add(sc.id));
@@ -752,6 +863,11 @@ function bindScrapbook(list){
   $('#printScraps').onclick=()=>printScraps(scrapView.selected.size?state.scraps.filter(sc=>scrapView.selected.has(sc.id)):list);
   $('#jsonBackup').onclick=backupJSON;
   $('#jsonRestore').onclick=openRestoreModal;
+  bindQuickRanges((from,to)=>{
+    scrapView.from=from;
+    scrapView.to=to;
+    renderScrapbook();
+  });
 }
 function moveScraps(ids){
   const m=$('#modal');
@@ -772,6 +888,7 @@ function moveScraps(ids){
     persist();m.innerHTML='';renderScrapbook();
   });
 }
+
 /* ══ 폴더 관리 ══ */
 function openFolderModal(){
   const m=$('#modal');
@@ -827,6 +944,7 @@ function openFolderModal(){
     persist();openFolderModal();
   });
 }
+
 /* ══ CSV 내보내기 (엑셀에서 바로 열려요) ══ */
 function csvCell(v){v=String(v??'');return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}
 function exportCSV(items){
@@ -844,6 +962,7 @@ function exportCSV(items){
   a.download=`나의식단스크랩_${dateISO(new Date())}.csv`;
   a.click();URL.revokeObjectURL(a.href);
 }
+
 /* ══ 인쇄 · PDF ══ */
 function printScraps(items){
   if(!items.length){alert('인쇄할 스크랩이 없어요.');return}
@@ -864,6 +983,7 @@ function printScraps(items){
     </div>`).join('')}`).join('')}`;
   window.print();
 }
+
 /* ══ JSON 백업 · 복원 ══ */
 function backupJSON(){
   const data={app:'meal-archive-scraps',version:2,exportedAt:new Date().toISOString(),
@@ -928,35 +1048,47 @@ function openRestoreModal(){
 async function analyzeTrend(){
   const targets=[state.mine,...state.comparisons].filter(Boolean);
   if(!targets.length){openSchoolModal('mine');return}
-  setStatus(`<span class="loading"></span>${targets.length}개 학교의 최근 30일 식단을 분석하고 있습니다.`);
+
+  const from=$('#tFrom').value,to=$('#tTo').value;
+  const rangeError=validateRange(from,to);
+  if(rangeError){setStatus(rangeError,true);return}
+
+  setStatus(`<span class="loading"></span>${targets.length}개 학교의 ${from} ~ ${to} 식단을 분석하고 있습니다.`);
   try{
-    const results=await Promise.all(targets.map(s=>fetchMeals(s,monthAgo(),dateISO(new Date()))));
+    const results=await Promise.all(targets.map(s=>fetchMeals(s,from,to)));
     const rows=results.flat();
+
     const myMenus=new Set();
     rows.filter(r=>state.mine&&r.school.schoolCode===state.mine.schoolCode)
-        .forEach(r=>parseDishes(r.dishes).forEach(d=>myMenus.add(normalize(d.name))));
+      .forEach(r=>parseDishes(r.dishes).forEach(d=>myMenus.add(normalize(d.name))));
+
     const cats={rice:new Map(),soup:new Map(),kimchi:new Map(),main:new Map(),side:new Map(),dessert:new Map()};
     rows.forEach(r=>parseDishes(r.dishes).forEach(d=>{
       const cat=classify(d.name);
       if(!cats[cat])return;
       addCount(cats[cat],d,r.school,r.date);
     }));
-    setStatus(`${targets.length}개교 · 최근 30일 급식 ${rows.length}일 분석 완료`);
+
+    setStatus(`${targets.length}개교 · ${from} ~ ${to} · 급식 ${rows.length}일 분석 완료`);
     $('#results').innerHTML=`
-      <div class="section-title"><div><h2>🔥 최근 30일 인기 메뉴</h2><p>기준일 ${dateISO(new Date())} · 최근 30일 자동 반영 · ${targets.map(s=>esc(s.schoolName)).join(', ')}</p></div></div>
+      <div class="section-title"><div><h2>🔥 요즘 뜨는 메뉴</h2><p>${from} ~ ${to} · ${targets.map(s=>esc(s.schoolName)).join(', ')}</p></div></div>
       <div class="trend-grid">
       ${['rice','soup','main','side','kimchi','dessert'].map(cat=>{
-        const map=cats[cat];
-        const items=[...map.values()].sort((a,b)=>b.count-a.count||b.schools.size-a.schools.size).slice(0,30);
+        const items=[...cats[cat].values()].sort((a,b)=>b.count-a.count||b.schools.size-a.schools.size).slice(0,30);
         return `<div class="card rank-card trend-col"><h3>${CAT_LABEL[cat]} TOP 30</h3>
         ${items.length?items.map((x,i)=>{
           const isNew=!myMenus.has(normalize(x.name));
-          const idea=esc(JSON.stringify({type:'idea',title:x.name,menus:[x.name],date:dateISO(new Date()),school:[...x.schools].slice(0,3).join(', '),sourceType:'요즘 뜨는 메뉴',sourcePeriod:`${monthAgo()}~${dateISO(new Date())}`,snapshot:{count:x.count,schools:[...x.schools],asOf:dateISO(new Date())}}));
-          return `<div class="rank"><span class="num">${i+1}</span><div><b>${esc(x.name)} ${isNew?'<span class="new-badge">✨NEW</span>':''}</b><small>${x.schools.size}개교 · ${x.count}회</small></div><button class="memo-btn" data-scrap-idea='${idea}' title="메뉴 아이디어로 스크랩">📌</button></div>`
+          const idea=esc(JSON.stringify({
+            type:'idea',title:x.name,menus:[x.name],date:dateISO(new Date()),
+            school:[...x.schools].slice(0,3).join(', '),
+            sourceType:'요즘 뜨는 메뉴',sourcePeriod:`${from}~${to}`,
+            snapshot:{count:x.count,schools:[...x.schools],from,to}
+          }));
+          return `<div class="rank"><span class="num">${i+1}</span><div><b>${esc(x.name)} ${isNew?'<span class="new-badge">✨NEW</span>':''}</b><small>${x.schools.size}개교 · ${x.count}회</small></div><button class="memo-btn" data-scrap-idea='${idea}' title="메뉴 아이디어로 스크랩">📌</button></div>`;
         }).join(''):'<div class="empty">데이터 없음</div>'}</div>`;
       }).join('')}
       </div>
-      <p class="help" style="margin-top:10px">✨NEW = 최근 30일 내 학교 식단에 없었던 메뉴예요. 새 아이디어로 참고해보세요!</p>`;
+      <p class="help" style="margin-top:10px">✨NEW = 선택한 기간 동안 내 학교 식단에는 없었던 메뉴예요.</p>`;
     bindIdeaScraps();
   }catch(e){setStatus(e.message,true)}
 }
@@ -966,33 +1098,40 @@ let _report=null; // 마지막 리포트 데이터 (메모 수정 시 재렌더�
 async function analyzeReport(){
   if(!state.mine){openSchoolModal('mine');return}
   const from=$('#rFrom').value,to=$('#rTo').value,keyword=($('#rKeyword')?.value||'').trim();
-  if(!from||!to){setStatus('기간을 입력하세요.',true);return}
-  const days=(new Date(to)-new Date(from))/86400000;
-  if(days<0||days>370){setStatus('조회 기간은 최대 1년이며 종료일이 시작일보다 늦어야 합니다.',true);return}
-  const today=dateISO(new Date());
-  const d90=(()=>{const d=new Date();d.setDate(d.getDate()-89);return dateISO(d)})();
+  const rangeError=validateRange(from,to);
+  if(rangeError){setStatus(rangeError,true);return}
+
   setStatus('<span class="loading"></span>내 학교와 비교학교 식단을 불러오고 있습니다.');
   const tasks=[
     fetchMeals(state.mine,from,to),
-    fetchMeals(state.mine,d90,today),
-    ...state.comparisons.map(s=>fetchMeals(s,d90,today))
+    ...state.comparisons.map(s=>fetchMeals(s,from,to))
   ];
+
   const settled=await Promise.allSettled(tasks);
   if(settled[0].status==='rejected'){setStatus(settled[0].reason.message,true);return}
+
   const rows=settled[0].value;
-  const my90=settled[1].status==='fulfilled'?settled[1].value:[];
   const compRows=[],failedSchools=[];
-  settled.slice(2).forEach((r,i)=>{
+  settled.slice(1).forEach((r,i)=>{
     if(r.status==='fulfilled')compRows.push(...r.value);
     else failedSchools.push(state.comparisons[i].schoolName);
   });
-  if(!rows.length){setStatus(`${from} ~ ${to} 기간에 나이스에 등록된 내 학교 식단이 없어 분석할 수 없습니다.`,true);return}
-  _report={rows,my90,compRows,failedSchools,from,to,keyword,today,d90};
+
+  if(!rows.length){
+    setStatus(`${from} ~ ${to} 기간에 나이스에 등록된 내 학교 식단이 없어 분석할 수 없습니다.`,true);
+    return;
+  }
+
+  _report={
+    rows,compRows,failedSchools,from,to,keyword,
+    today:dateISO(new Date())
+  };
   renderReport();
 }
 
 function renderReport(){
-  const {rows,my90,compRows,failedSchools,from,to,keyword,today,d90}=_report;
+  const {rows,compRows,failedSchools,from,to,keyword,today}=_report;
+
   /* 분류별 집계 */
   const cats={rice:new Map(),soup:new Map(),kimchi:new Map(),main:new Map(),side:new Map(),dessert:new Map()};
   const menuMap=new Map();
@@ -1003,28 +1142,33 @@ function renderReport(){
     addCount(cats[v.cat],d,r.school,r.date);
   }));
   const all=[...menuMap.values()];
+
   /* 오래 안 쓴 메뉴 (종료일 기준 3개월) */
   const staleLine=(()=>{const d=new Date(to);d.setMonth(d.getMonth()-3);return dateISO(d).replace(/-/g,'')})();
   const stale=all.filter(x=>x.latest<staleLine&&x.count>=2).sort((a,b)=>a.latest.localeCompare(b.latest)).slice(0,15);
+
   /* 별점 */
   const ratedDays=Object.entries(state.ratings).filter(([k,v])=>v.stars&&k>=from&&k<=to);
-  /* 90일 인기 (내 학교 + 비교학교) */
-  const my90Set=new Set();
-  my90.forEach(r=>parseDishes(r.dishes).forEach(d=>my90Set.add(normalize(d.name))));
-  const all90=[...my90,...compRows];
-  const cats90={rice:new Map(),soup:new Map(),kimchi:new Map(),main:new Map(),side:new Map(),dessert:new Map()};
-  all90.forEach(r=>parseDishes(r.dishes).forEach(d=>{
-    const cat=classify(d.name);if(!cats90[cat])return;
-    addCount(cats90[cat],d,r.school,r.date);
+
+  /* 선택 기간 인기 (내 학교 + 비교학교) */
+  const myPeriodSet=new Set();
+  rows.forEach(r=>parseDishes(r.dishes).forEach(d=>myPeriodSet.add(normalize(d.name))));
+  const allPeriod=[...rows,...compRows];
+  const catsPeriod={rice:new Map(),soup:new Map(),kimchi:new Map(),main:new Map(),side:new Map(),dessert:new Map()};
+  allPeriod.forEach(r=>parseDishes(r.dishes).forEach(d=>{
+    const cat=classify(d.name);if(!catsPeriod[cat])return;
+    addCount(catsPeriod[cat],d,r.school,r.date);
   }));
   let refCount=0;
-  Object.values(cats90).forEach(map=>[...map.values()].forEach(x=>{if(!my90Set.has(normalize(x.name))&&x.count>=2)refCount++}));
+  Object.values(catsPeriod).forEach(map=>[...map.values()].forEach(x=>{if(!myPeriodSet.has(normalize(x.name))&&x.count>=2)refCount++}));
+
   /* 키워드 분석 */
   let kwHTML='';
   if(keyword){
     const hitDays=rows.filter(r=>parseDishes(r.dishes).some(d=>menuMatches(d.name,keyword,true)))
       .sort((a,b)=>b.date.localeCompare(a.date));
     const combos=analyzeMeals(rows,keyword,true);
+
     /* 월별 추이 */
     const months=[];{
       const cur=new Date(+from.slice(0,4),+from.slice(5,7)-1,1),endM=to.slice(0,7);
@@ -1033,6 +1177,7 @@ function renderReport(){
     const perMonth=Object.fromEntries(months.map(m=>[m,0]));
     hitDays.forEach(r=>{const m=`${r.date.slice(0,4)}-${r.date.slice(4,6)}`;if(m in perMonth)perMonth[m]++});
     const maxM=Math.max(1,...Object.values(perMonth));
+
     kwHTML=`
     <div class="section-title"><div><h2>🔍 '${esc(keyword)}' 상세 분석</h2><p>${from} ~ ${to} · 총 ${hitDays.length}회 편성</p></div></div>
     ${hitDays.length?`
@@ -1054,6 +1199,7 @@ function renderReport(){
       </div>
     </div>`:`<div class="empty">이 기간에 '${esc(keyword)}'를 편성한 날이 없습니다.</div>`}`;
   }
+
   /* 학교명 표시 (처음 3개 + 외 N개교 펼치기) */
   const schoolsHTML=(set,idx)=>{
     const arr=[...set];
@@ -1061,6 +1207,7 @@ function renderReport(){
     return `<span class="sch-short" data-sch="${idx}">${esc(arr.slice(0,3).join(', '))} <button class="sch-more" data-sch-btn="${idx}">외 ${arr.length-3}개교</button></span><span class="sch-full hidden" data-sch-full="${idx}">${esc(arr.join(', '))}</span>`;
   };
   let schIdx=0;
+
   /* 분류별 TOP 30 (메모 포함) */
   const catCols=['rice','soup','main','side','kimchi','dessert'].map(cat=>{
     const items=[...cats[cat].values()].sort((a,b)=>b.count-a.count).slice(0,30);
@@ -1073,17 +1220,19 @@ function renderReport(){
           <button class="memo-btn" data-menu-memo="${esc(key)}" data-menu-name="${esc(x.name)}" title="메뉴 메모">📝</button></div>`
       }).join(''):'<div class="empty">데이터 없음</div>'}</div>`;
   }).join('');
-  /* 90일 인기 (비교 참고) */
+
+  /* 선택 기간 인기 (비교 참고) */
   const popCols=['rice','soup','main','side','kimchi','dessert'].map(cat=>{
-    const items=[...cats90[cat].values()].sort((a,b)=>b.count-a.count||b.schools.size-a.schools.size).slice(0,15);
+    const items=[...catsPeriod[cat].values()].sort((a,b)=>b.count-a.count||b.schools.size-a.schools.size).slice(0,15);
     return `<div class="card rank-card trend-col"><h3>${CAT_LABEL[cat]}</h3>
       ${items.length?items.map((x,i)=>{
-        const isNew=!my90Set.has(normalize(x.name));
+        const isNew=!myPeriodSet.has(normalize(x.name));
         const s=schoolsHTML(x.schools,schIdx++);
-        const idea=esc(JSON.stringify({type:'idea',title:x.name,menus:[x.name],date:today,school:[...x.schools].slice(0,3).join(', '),sourceType:'90일 인기 메뉴',sourcePeriod:`${d90}~${today}`,snapshot:{count:x.count,schools:[...x.schools],asOf:today}}));
+        const idea=esc(JSON.stringify({type:'idea',title:x.name,menus:[x.name],date:today,school:[...x.schools].slice(0,3).join(', '),sourceType:'선택 기간 인기 메뉴',sourcePeriod:`${from}~${to}`,snapshot:{count:x.count,schools:[...x.schools],from,to}}));
         return `<div class="rank"><span class="num">${i+1}</span><div><b>${esc(x.name)} ${isNew?'<span class="new-badge">✨ 신메뉴 참고</span>':''}</b><small>${x.count}회 · ${x.schools.size}개교 · ${s}</small></div><button class="memo-btn" data-scrap-idea='${idea}' title="메뉴 아이디어로 스크랩">📌</button></div>`
       }).join(''):'<div class="empty">데이터 없음</div>'}</div>`;
   }).join('');
+
   $('#results').innerHTML=`
     <div class="section-title"><div><h2>📊 ${esc(state.mine.schoolName)} 식단 리포트</h2><p>분석 기간 ${from} ~ ${to} · 기준일 ${today} · 나에게만 보이는 분석입니다</p></div></div>
     <div class="summary">
@@ -1097,7 +1246,7 @@ function renderReport(){
     <div class="section-title"><div><h2>분류별 자주 낸 메뉴</h2><p>${from} ~ ${to} · 메뉴 옆 📝로 나만의 메모를 남길 수 있어요</p></div></div>
     <div class="trend-grid">${catCols}</div>
     ${state.comparisons.length||compRows.length?`
-    <div class="section-title"><div><h2>🔥 최근 90일 인기 메뉴 (비교 참고)</h2><p>${d90} ~ ${today} · 내 학교 + ${state.comparisons.map(s=>esc(s.schoolName)).join(', ')||'비교학교'} · ✨ = 내 학교 최근 90일에 없던 메뉴</p></div></div>
+    <div class="section-title"><div><h2>🔥 선택 기간 인기 메뉴 (비교 참고)</h2><p>${from} ~ ${to} · 내 학교 + ${state.comparisons.map(s=>esc(s.schoolName)).join(', ')||'비교학교'} · ✨ = 같은 기간 내 학교에 없던 메뉴</p></div></div>
     <div class="trend-grid">${popCols}</div>`:`
     <div class="warn" style="margin-top:14px">비교학교를 등록하면 다른 학교 인기 메뉴와 ✨신메뉴 참고를 함께 볼 수 있어요.</div>`}
     <div class="section-title"><div><h2>3개월 넘게 안 쓴 메뉴</h2><p>종료일(${to}) 기준</p></div></div>
@@ -1122,10 +1271,12 @@ function renderReport(){
       <textarea id="reportNote" placeholder="예: 8월 주찬 반복이 많음. 다음 달엔 생선 메뉴 늘리기." style="width:100%;min-height:100px">${esc(state.reportNote||'')}</textarea>
       <div class="help" id="noteSaved" style="text-align:right"></div>
     </div>`;
+
   setStatus(`분석 완료 · 급식 ${rows.length}일 · 고유 메뉴 ${all.length}개${keyword?` · '${esc(keyword)}' ${kwHTML.includes('상세 분석')?'분석 포함':''}`:''}`);
   bindReportEvents();
   bindIdeaScraps();
 }
+
 function bindReportEvents(){
   $$('[data-menu-memo]').forEach(b=>b.onclick=()=>{
     const key=b.dataset.menuMemo,name=b.dataset.menuName;
@@ -1153,8 +1304,24 @@ function setStatus(msg,error=false){$('#status').innerHTML=`<div class="status $
 
 /* ══ 시작 ══ */
 onAuthStateChanged(auth,async u=>{
+  cloudReady=false;
   user=u;
-  if(u)await loadCloud();
+
+  if(!u){
+    migrateScraps();
+    shell();
+    return;
+  }
+
+  // cloudReady=false 상태에서 로컬 자료를 최신 스크랩 구조로만 정리
+  // Firestore에는 아직 저장하지 않음
+  migrateScraps();
+
+  // Firestore 문서가 없을 때만 현재 로컬 자료를 최초 1회 이관
+  // 이미 문서가 있으면 클라우드 자료를 기준으로 로드
+  await initializeCloudForUser();
+
+  // 클라우드에서 불러온 옛 스크랩도 현재 구조로 안전하게 마이그레이션
   migrateScraps();
   shell();
 });
