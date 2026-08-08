@@ -1,16 +1,27 @@
 import './style.css';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
+import {
+  getAuth,
+  signInWithPopup,
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signOut
+} from 'firebase/auth';
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  getDoc
+} from 'firebase/firestore';
 
-/* ══ Firebase (AISORI — 급식소리함 공용 계정) ══ */
+/* ══ Firebase ══ */
 const fbApp = initializeApp({
-  apiKey: "AIzaSyBEagv2iP4sSJuDsjBB24A3FHFfAiiS8wA",
-  authDomain: "aisori.firebaseapp.com",
-  projectId: "aisori",
-  storageBucket: "aisori.firebasestorage.app",
-  messagingSenderId: "829702954282",
-  appId: "1:829702954282:web:7f38d1ca0e591d238d9253"
+  apiKey: 'AIzaSyBEagv2iP4sSJuDsjBB24A3FHFfAiiS8wA',
+  authDomain: 'aisori.firebaseapp.com',
+  projectId: 'aisori',
+  storageBucket: 'aisori.firebasestorage.app',
+  messagingSenderId: '829702954282',
+  appId: '1:829702954282:web:7f38d1ca0e591d238d9253'
 });
 
 const auth = getAuth(fbApp);
@@ -25,31 +36,95 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 
 const state = {
-  mine: JSON.parse(localStorage.getItem('archive_my_school') || 'null'),
-  comparisons: JSON.parse(localStorage.getItem('archive_compare_schools') || '[]'),
+  mine: JSON.parse(
+    localStorage.getItem('archive_my_school') || 'null'
+  ),
+
+  comparisons: JSON.parse(
+    localStorage.getItem('archive_compare_schools') || '[]'
+  ),
+
   tab: 'mine',
   similar: true,
   loaded: [],
-  favorites: new Set(JSON.parse(localStorage.getItem('archive_favorites') || '[]')),
-  scraps: JSON.parse(localStorage.getItem('archive_scraps') || '[]'),
-  ratings: JSON.parse(localStorage.getItem('archive_ratings') || '{}'),
-  folders: JSON.parse(localStorage.getItem('archive_folders') || '["기본"]'),
-  menuMemos: JSON.parse(localStorage.getItem('archive_menu_memos') || '{}'),
-  reportNote: localStorage.getItem('archive_report_note') || '',
-  baseFolder: localStorage.getItem('archive_base_folder') || '기본 폴더'
+
+  favorites: new Set(
+    JSON.parse(
+      localStorage.getItem('archive_favorites') || '[]'
+    )
+  ),
+
+  scraps: JSON.parse(
+    localStorage.getItem('archive_scraps') || '[]'
+  ),
+
+  ratings: JSON.parse(
+    localStorage.getItem('archive_ratings') || '{}'
+  ),
+
+  folders: JSON.parse(
+    localStorage.getItem('archive_folders') || '["기본"]'
+  ),
+
+  menuMemos: JSON.parse(
+    localStorage.getItem('archive_menu_memos') || '{}'
+  ),
+
+  reportNote:
+    localStorage.getItem('archive_report_note') || '',
+
+  baseFolder:
+    localStorage.getItem('archive_base_folder') || '기본 폴더'
 };
 
-/* ══ 클라우드 동기화 ══ */
+/* ═════════════════════════════
+   클라우드 동기화
+═════════════════════════════ */
 function persistLocal() {
-  localStorage.setItem('archive_my_school', JSON.stringify(state.mine));
-  localStorage.setItem('archive_compare_schools', JSON.stringify(state.comparisons));
-  localStorage.setItem('archive_favorites', JSON.stringify([...state.favorites]));
-  localStorage.setItem('archive_scraps', JSON.stringify(state.scraps));
-  localStorage.setItem('archive_ratings', JSON.stringify(state.ratings));
-  localStorage.setItem('archive_folders', JSON.stringify(state.folders));
-  localStorage.setItem('archive_menu_memos', JSON.stringify(state.menuMemos || {}));
-  localStorage.setItem('archive_report_note', state.reportNote || '');
-  localStorage.setItem('archive_base_folder', state.baseFolder || '기본 폴더');
+  localStorage.setItem(
+    'archive_my_school',
+    JSON.stringify(state.mine)
+  );
+
+  localStorage.setItem(
+    'archive_compare_schools',
+    JSON.stringify(state.comparisons)
+  );
+
+  localStorage.setItem(
+    'archive_favorites',
+    JSON.stringify([...state.favorites])
+  );
+
+  localStorage.setItem(
+    'archive_scraps',
+    JSON.stringify(state.scraps)
+  );
+
+  localStorage.setItem(
+    'archive_ratings',
+    JSON.stringify(state.ratings)
+  );
+
+  localStorage.setItem(
+    'archive_folders',
+    JSON.stringify(state.folders)
+  );
+
+  localStorage.setItem(
+    'archive_menu_memos',
+    JSON.stringify(state.menuMemos || {})
+  );
+
+  localStorage.setItem(
+    'archive_report_note',
+    state.reportNote || ''
+  );
+
+  localStorage.setItem(
+    'archive_base_folder',
+    state.baseFolder || '기본 폴더'
+  );
 }
 
 function cloudPayload() {
@@ -69,202 +144,461 @@ function cloudPayload() {
 
 async function syncCloud() {
   persistLocal();
-  if (!user || !cloudReady) return;
+
+  if (!user || !cloudReady) {
+    return;
+  }
 
   try {
     await setDoc(
-      doc(db, 'users', user.uid, 'apps', 'archive'),
+      doc(
+        db,
+        'users',
+        user.uid,
+        'apps',
+        'archive'
+      ),
       cloudPayload(),
-      { merge: false }
+      {
+        merge: false
+      }
     );
+
   } catch (e) {
-    console.error('클라우드 저장 실패', e);
+    console.error(
+      '클라우드 저장 실패',
+      e
+    );
   }
 }
 
 function applyCloudData(d) {
-  state.mine = d.mine || null;
-  state.comparisons = Array.isArray(d.comparisons) ? d.comparisons : [];
-  state.favorites = new Set(Array.isArray(d.favorites) ? d.favorites : []);
-  state.scraps = Array.isArray(d.scraps) ? d.scraps : [];
-  state.ratings = d.ratings || {};
-  state.folders = Array.isArray(d.folders) ? d.folders : [];
-  state.menuMemos = d.menuMemos || {};
-  state.reportNote = typeof d.reportNote === 'string' ? d.reportNote : '';
-  state.baseFolder = d.baseFolder || '기본 폴더';
+  state.mine =
+    d.mine || null;
+
+  state.comparisons =
+    Array.isArray(d.comparisons)
+      ? d.comparisons
+      : [];
+
+  state.favorites =
+    new Set(
+      Array.isArray(d.favorites)
+        ? d.favorites
+        : []
+    );
+
+  state.scraps =
+    Array.isArray(d.scraps)
+      ? d.scraps
+      : [];
+
+  state.ratings =
+    d.ratings || {};
+
+  state.folders =
+    Array.isArray(d.folders)
+      ? d.folders
+      : [];
+
+  state.menuMemos =
+    d.menuMemos || {};
+
+  state.reportNote =
+    typeof d.reportNote === 'string'
+      ? d.reportNote
+      : '';
+
+  state.baseFolder =
+    d.baseFolder || '기본 폴더';
 
   persistLocal();
 }
 
 async function initializeCloudForUser() {
-  if (!user) return;
+  if (!user) {
+    return;
+  }
 
   cloudReady = false;
-  const ref = doc(db, 'users', user.uid, 'apps', 'archive');
+
+  const ref = doc(
+    db,
+    'users',
+    user.uid,
+    'apps',
+    'archive'
+  );
 
   try {
-    const snap = await getDoc(ref);
+    const snap =
+      await getDoc(ref);
 
     if (snap.exists()) {
-      applyCloudData(snap.data());
+      applyCloudData(
+        snap.data()
+      );
+
     } else {
-      await setDoc(ref, {
-        ...cloudPayload(),
-        migrationVersion: 1,
-        migratedFromLocal: true,
-        createdAt: new Date().toISOString()
-      }, { merge: false });
+      await setDoc(
+        ref,
+        {
+          ...cloudPayload(),
+          migrationVersion: 1,
+          migratedFromLocal: true,
+          createdAt:
+            new Date().toISOString()
+        },
+        {
+          merge: false
+        }
+      );
     }
 
     cloudReady = true;
+
   } catch (e) {
     cloudReady = false;
-    console.error('초기 클라우드 동기화 실패', e);
+
+    console.error(
+      '초기 클라우드 동기화 실패',
+      e
+    );
   }
 }
 
-/* ══ 메뉴 분류 규칙 ══ */
+/* ═════════════════════════════
+   메뉴 분류
+═════════════════════════════ */
 const CLASS_RULES = {
   exception: {
     rice: [
-      '비빔밥','볶음밥','덮밥','국밥','카레라이스',
-      '오므라이스','짜장밥','컵밥','주먹밥','김밥','영양밥'
+      '비빔밥',
+      '볶음밥',
+      '덮밥',
+      '국밥',
+      '카레라이스',
+      '오므라이스',
+      '짜장밥',
+      '컵밥',
+      '주먹밥',
+      '김밥',
+      '영양밥'
     ],
+
     main: [
-      '탕수육','닭볶음탕','떡갈비'
+      '탕수육',
+      '닭볶음탕',
+      '떡갈비'
     ],
+
     dessert: [
-      '식혜','수정과','미숫가루'
+      '식혜',
+      '수정과',
+      '미숫가루'
     ]
   },
 
   rice: [
-    '밥','죽','리조또','리소토','필라프',
-    '국수','칼국수','우동','스파게티','파스타',
-    '짜장면','비빔면','냉면','쫄면','라면','짬뽕'
+    '밥',
+    '죽',
+    '리조또',
+    '리소토',
+    '필라프',
+    '국수',
+    '칼국수',
+    '우동',
+    '스파게티',
+    '파스타',
+    '짜장면',
+    '비빔면',
+    '냉면',
+    '쫄면',
+    '라면',
+    '짬뽕'
   ],
 
   soup: [
-    '국','탕','찌개','전골','스프',
-    '수프','수제비','장국','짬뽕국','개장'
+    '국',
+    '탕',
+    '찌개',
+    '전골',
+    '스프',
+    '수프',
+    '수제비',
+    '장국',
+    '짬뽕국',
+    '개장'
   ],
 
   soupExclude: [
-    '탕수','볶음탕','국수','국물떡'
+    '탕수',
+    '볶음탕',
+    '국수',
+    '국물떡'
   ],
 
   kimchi: [
-    '김치','깍두기','총각','석박지',
-    '동치미','겉절이','나박','백김치'
+    '김치',
+    '깍두기',
+    '총각',
+    '석박지',
+    '동치미',
+    '겉절이',
+    '나박',
+    '백김치'
   ],
 
   mainIng: [
-    '갈비','불고기','제육','돈까스','돈가스',
-    '생선까스','생선가스','치즈까스','왕돈까스',
-    '치킨','닭','오리','스테이크','장조림',
-    '탕수','강정','고등어','삼치','조기',
-    '갈치','꽁치','동태','코다리','임연수',
-    '가자미','연어','참치','메로','굴비',
-    '장어','생선','미트볼','함박','너비아니',
-    '산적','폭찹','깐풍','유린기','오징어',
-    '쭈꾸미','주꾸미','낙지','문어','새우',
-    '돼지','소고기','쇠고기','한우','우육',
-    '돈육','계육','목살','삼겹','햄',
-    '소시지','소세지','비엔나','마라','불백','훈제'
+    '갈비',
+    '불고기',
+    '제육',
+    '돈까스',
+    '돈가스',
+    '생선까스',
+    '생선가스',
+    '치즈까스',
+    '왕돈까스',
+    '치킨',
+    '닭',
+    '오리',
+    '스테이크',
+    '장조림',
+    '탕수',
+    '강정',
+    '고등어',
+    '삼치',
+    '조기',
+    '갈치',
+    '꽁치',
+    '동태',
+    '코다리',
+    '임연수',
+    '가자미',
+    '연어',
+    '참치',
+    '메로',
+    '굴비',
+    '장어',
+    '생선',
+    '미트볼',
+    '함박',
+    '너비아니',
+    '산적',
+    '폭찹',
+    '깐풍',
+    '유린기',
+    '오징어',
+    '쭈꾸미',
+    '주꾸미',
+    '낙지',
+    '문어',
+    '새우',
+    '돼지',
+    '소고기',
+    '쇠고기',
+    '한우',
+    '우육',
+    '돈육',
+    '계육',
+    '목살',
+    '삼겹',
+    '햄',
+    '소시지',
+    '소세지',
+    '비엔나',
+    '마라',
+    '불백',
+    '훈제'
   ],
 
   dessert: [
-    '과일','주스','음료','요구르트','요거트',
-    '아이스크림','케이크','쿠키','빵','푸딩',
-    '젤리','우유','수박','참외','멜론',
-    '메론','포도','사과','바나나','파인애플',
-    '딸기','오렌지','키위','자두','복숭아',
-    '천도','귤','한라봉','망고','에이드',
-    '스무디','약과','화채','샤베트','셔벗','라떼'
+    '과일',
+    '주스',
+    '음료',
+    '요구르트',
+    '요거트',
+    '아이스크림',
+    '케이크',
+    '쿠키',
+    '빵',
+    '푸딩',
+    '젤리',
+    '우유',
+    '수박',
+    '참외',
+    '멜론',
+    '메론',
+    '포도',
+    '사과',
+    '바나나',
+    '파인애플',
+    '딸기',
+    '오렌지',
+    '키위',
+    '자두',
+    '복숭아',
+    '천도',
+    '귤',
+    '한라봉',
+    '망고',
+    '에이드',
+    '스무디',
+    '약과',
+    '화채',
+    '샤베트',
+    '셔벗',
+    '라떼'
   ],
 
   side: [
-    '무침','나물','샐러드','잡채','전',
-    '말이','조림','볶음','튀김','피클',
-    '장아찌','묵','두부','계란','달걀',
-    '떡볶이','구이','찜','쌈'
+    '무침',
+    '나물',
+    '샐러드',
+    '잡채',
+    '전',
+    '말이',
+    '조림',
+    '볶음',
+    '튀김',
+    '피클',
+    '장아찌',
+    '묵',
+    '두부',
+    '계란',
+    '달걀',
+    '떡볶이',
+    '구이',
+    '찜',
+    '쌈'
   ]
 };
 
-const _normCache = new Map();
+const _normCache =
+  new Map();
+
+const _catCache =
+  new Map();
 
 function normalize(s = '') {
-  const key = String(s);
+  const key =
+    String(s);
 
-  if (_normCache.has(key)) {
+  if (
+    _normCache.has(key)
+  ) {
     return _normCache.get(key);
   }
 
-  const n = key
-    .replace(/\([^)]*\)/g, '')
-    .replace(/\[[^\]]*\]/g, '')
-    .replace(/[*#@♥▶►◆■※&]/g, '')
-    .replace(/자율선택|자율메뉴|자율/g, '')
-    .replace(/국내산|국산|친환경|무농약|유기농|저염|저당|Non-GMO|HACCP/gi, '')
-    .replace(/\s+/g, '')
-    .trim();
+  const n =
+    key
+      .replace(/\([^)]*\)/g, '')
+      .replace(/\[[^\]]*\]/g, '')
+      .replace(/[*#@♥▶►◆■※&]/g, '')
+      .replace(
+        /자율선택|자율메뉴|자율/g,
+        ''
+      )
+      .replace(
+        /국내산|국산|친환경|무농약|유기농|저염|저당|Non-GMO|HACCP/gi,
+        ''
+      )
+      .replace(/\s+/g, '')
+      .trim();
 
-  _normCache.set(key, n);
+  _normCache.set(
+    key,
+    n
+  );
+
   return n;
 }
 
-const _catCache = new Map();
-
 function classify(name) {
-  const n = normalize(name);
+  const n =
+    normalize(name);
 
-  if (_catCache.has(n)) {
+  if (
+    _catCache.has(n)
+  ) {
     return _catCache.get(n);
   }
 
-  let cat = 'side';
-  const R = CLASS_RULES;
+  let cat =
+    'side';
+
+  const R =
+    CLASS_RULES;
 
   outer: {
-    for (const [c, words] of Object.entries(R.exception)) {
-      if (words.some(w => n.includes(w))) {
+    for (
+      const [c, words]
+      of Object.entries(R.exception)
+    ) {
+      if (
+        words.some(
+          w => n.includes(w)
+        )
+      ) {
         cat = c;
         break outer;
       }
     }
 
-    if (R.rice.some(w => n.includes(w))) {
+    if (
+      R.rice.some(
+        w => n.includes(w)
+      )
+    ) {
       cat = 'rice';
       break outer;
     }
 
     if (
-      R.soup.some(w => n.includes(w)) &&
-      !R.soupExclude.some(w => n.includes(w))
+      R.soup.some(
+        w => n.includes(w)
+      ) &&
+      !R.soupExclude.some(
+        w => n.includes(w)
+      )
     ) {
       cat = 'soup';
       break outer;
     }
 
-    if (R.kimchi.some(w => n.includes(w))) {
+    if (
+      R.kimchi.some(
+        w => n.includes(w)
+      )
+    ) {
       cat = 'kimchi';
       break outer;
     }
 
-    if (R.mainIng.some(w => n.includes(w))) {
+    if (
+      R.mainIng.some(
+        w => n.includes(w)
+      )
+    ) {
       cat = 'main';
       break outer;
     }
 
-    if (R.dessert.some(w => n.includes(w))) {
+    if (
+      R.dessert.some(
+        w => n.includes(w)
+      )
+    ) {
       cat = 'dessert';
       break outer;
     }
-
-    cat = 'side';
   }
 
-  _catCache.set(n, cat);
+  _catCache.set(
+    n,
+    cat
+  );
+
   return cat;
 }
 
@@ -277,7 +611,9 @@ const CAT_LABEL = {
   dessert: '후식'
 };
 
-/* ══ 스크랩북 기본 폴더 ══ */
+/* ═════════════════════════════
+   스크랩북
+═════════════════════════════ */
 const DEFAULT_FOLDERS = [
   '다음 달 식단 후보',
   '계절 식단',
@@ -302,23 +638,37 @@ function splitMenus(menus) {
     dessert: []
   };
 
-  (menus || []).forEach(m => {
-    const c = classify(m);
-    (g[c] || g.side).push(m);
-  });
+  (menus || [])
+    .forEach(
+      m => {
+        const c =
+          classify(m);
+
+        (g[c] || g.side)
+          .push(m);
+      }
+    );
 
   return g;
 }
 
 function migrateScraps() {
-  let changed = false;
+  let changed =
+    false;
 
-  if (!Array.isArray(state.folders)) {
+  if (
+    !Array.isArray(
+      state.folders
+    )
+  ) {
     state.folders = [];
   }
 
-  if (!state.baseFolder) {
-    state.baseFolder = '기본 폴더';
+  if (
+    !state.baseFolder
+  ) {
+    state.baseFolder =
+      '기본 폴더';
   }
 
   if (
@@ -328,146 +678,214 @@ function migrateScraps() {
       state.folders[0] === '기본'
     )
   ) {
-    state.folders = [...DEFAULT_FOLDERS];
+    state.folders =
+      [...DEFAULT_FOLDERS];
+
     changed = true;
+
   } else {
-    DEFAULT_FOLDERS.forEach(f => {
-      if (!state.folders.includes(f)) {
-        state.folders.push(f);
-        changed = true;
-      }
-    });
+    DEFAULT_FOLDERS
+      .forEach(
+        f => {
+          if (
+            !state.folders.includes(f)
+          ) {
+            state.folders.push(f);
+            changed = true;
+          }
+        }
+      );
 
-    const gi = state.folders.indexOf('기본');
+    const gi =
+      state.folders.indexOf(
+        '기본'
+      );
 
-    if (gi > -1) {
-      state.folders.splice(gi, 1);
+    if (
+      gi > -1
+    ) {
+      state.folders.splice(
+        gi,
+        1
+      );
+
       changed = true;
     }
   }
 
-  if (!state.folders.includes(state.baseFolder)) {
-    state.folders.push(state.baseFolder);
+  if (
+    !state.folders.includes(
+      state.baseFolder
+    )
+  ) {
+    state.folders.push(
+      state.baseFolder
+    );
+
     changed = true;
   }
 
-  state.scraps = (state.scraps || []).map(sc => {
-    if (sc && sc.schemaV === 2) {
-      return sc;
-    }
+  state.scraps =
+    (state.scraps || [])
+      .map(
+        sc => {
+          if (
+            sc &&
+            sc.schemaV === 2
+          ) {
+            return sc;
+          }
 
-    changed = true;
+          changed = true;
 
-    const menus = Array.isArray(sc?.menus)
-      ? sc.menus
-      : [];
+          const menus =
+            Array.isArray(sc?.menus)
+              ? sc.menus
+              : [];
 
-    const isAnalysis =
-      menus.some(m => /^주찬:|^부찬:/.test(String(m))) ||
-      sc?.school === '분석 결과';
+          const isAnalysis =
+            menus.some(
+              m =>
+                /^주찬:|^부찬:/
+                  .test(
+                    String(m)
+                  )
+            ) ||
+            sc?.school ===
+              '분석 결과';
 
-    const base = {
-      schemaV: 2,
-      id:
-        sc?.id ||
-        Date.now().toString(36) +
-        Math.random().toString(36).slice(2, 6),
+          const base = {
+            schemaV: 2,
 
-      type: isAnalysis
-        ? 'idea'
-        : 'meal',
+            id:
+              sc?.id ||
+              Date.now().toString(36) +
+              Math.random()
+                .toString(36)
+                .slice(2, 6),
 
-      folder:
-        (sc?.folder === '기본' || !sc?.folder)
-          ? state.baseFolder
-          : sc.folder,
+            type:
+              isAnalysis
+                ? 'idea'
+                : 'meal',
 
-      title:
-        sc?.title ||
-        '제목 없음',
+            folder:
+              (
+                sc?.folder === '기본' ||
+                !sc?.folder
+              )
+                ? state.baseFolder
+                : sc.folder,
 
-      school:
-        sc?.school ||
-        '',
+            title:
+              sc?.title ||
+              '제목 없음',
 
-      servedDate:
-        sc?.date ||
-        sc?.servedDate ||
-        '',
+            school:
+              sc?.school ||
+              '',
 
-      menus,
+            servedDate:
+              sc?.date ||
+              sc?.servedDate ||
+              '',
 
-      calories:
-        sc?.calories ||
-        '',
+            menus,
 
-      stars:
-        sc?.stars ||
-        0,
+            calories:
+              sc?.calories ||
+              '',
 
-      memo:
-        sc?.memo ||
-        '',
+            stars:
+              sc?.stars ||
+              0,
 
-      savedAt:
-        sc?.savedAt ||
-        dateISO(new Date()),
+            memo:
+              sc?.memo ||
+              '',
 
-      sourceType:
-        isAnalysis
-          ? '조합 분석'
-          : '식단 카드',
+            savedAt:
+              sc?.savedAt ||
+              dateISO(
+                new Date()
+              ),
 
-      sourcePeriod:
-        sc?.sourcePeriod ||
-        '',
+            sourceType:
+              isAnalysis
+                ? '조합 분석'
+                : '식단 카드',
 
-      snapshot:
-        sc?.snapshot ||
-        null
-    };
+            sourcePeriod:
+              sc?.sourcePeriod ||
+              '',
 
-    if (base.type === 'meal') {
-      Object.assign(base, splitMenus(menus));
-    }
+            snapshot:
+              sc?.snapshot ||
+              null
+          };
 
-    return base;
-  });
+          if (
+            base.type === 'meal'
+          ) {
+            Object.assign(
+              base,
+              splitMenus(menus)
+            );
+          }
 
-  if (changed) {
+          return base;
+        }
+      );
+
+  if (
+    changed
+  ) {
     persist();
   }
 }
 
-/* ══ 공통 유틸 ══ */
+/* ═════════════════════════════
+   공통
+═════════════════════════════ */
 function esc(v = '') {
-  return String(v).replace(
-    /[&<>"']/g,
-    m => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;'
-    }[m])
-  );
+  return String(v)
+    .replace(
+      /[&<>"']/g,
+      m => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      }[m])
+    );
 }
 
 function dateISO(d) {
   return (
     `${d.getFullYear()}-` +
-    `${String(d.getMonth() + 1).padStart(2, '0')}-` +
-    `${String(d.getDate()).padStart(2, '0')}`
+    `${String(
+      d.getMonth() + 1
+    ).padStart(2, '0')}-` +
+    `${String(
+      d.getDate()
+    ).padStart(2, '0')}`
   );
 }
 
-const MAX_RANGE_YEARS = 3;
+const MAX_RANGE_YEARS =
+  3;
 
-function yearsAgo(years, base = new Date()) {
-  const d = new Date(base);
+function yearsAgo(
+  years,
+  base = new Date()
+) {
+  const d =
+    new Date(base);
 
   d.setFullYear(
-    d.getFullYear() - years
+    d.getFullYear() -
+    years
   );
 
   d.setDate(
@@ -482,34 +900,52 @@ function threeYearsAgo() {
 }
 
 function daysAgo(days) {
-  const d = new Date();
+  const d =
+    new Date();
 
   d.setDate(
-    d.getDate() - (days - 1)
+    d.getDate() -
+    (days - 1)
   );
 
   return dateISO(d);
 }
 
-function validateRange(from, to) {
-  if (!from || !to) {
+function validateRange(
+  from,
+  to
+) {
+  if (
+    !from ||
+    !to
+  ) {
     return '시작일과 종료일을 입력하세요.';
   }
 
   const start =
-    new Date(`${from}T00:00:00`);
+    new Date(
+      `${from}T00:00:00`
+    );
 
   const end =
-    new Date(`${to}T00:00:00`);
+    new Date(
+      `${to}T00:00:00`
+    );
 
   if (
-    Number.isNaN(start.getTime()) ||
-    Number.isNaN(end.getTime())
+    Number.isNaN(
+      start.getTime()
+    ) ||
+    Number.isNaN(
+      end.getTime()
+    )
   ) {
     return '기간 값이 올바르지 않습니다.';
   }
 
-  if (end < start) {
+  if (
+    end < start
+  ) {
     return '종료일은 시작일보다 빠를 수 없습니다.';
   }
 
@@ -521,19 +957,28 @@ function validateRange(from, to) {
     MAX_RANGE_YEARS
   );
 
-  if (start < min) {
+  if (
+    start < min
+  ) {
     return '조회 기간은 최대 3년입니다.';
   }
 
   return '';
 }
 
-function quickRangeButtons(fromId, toId) {
+function quickRangeButtons(
+  fromId,
+  toId
+) {
   return `
     <div
       class="row"
-      style="gap:6px;flex-wrap:wrap"
+      style="
+        gap:6px;
+        flex-wrap:wrap
+      "
     >
+
       <button
         class="btn ghost small"
         data-range-days="30"
@@ -587,108 +1032,154 @@ function quickRangeButtons(fromId, toId) {
       >
         3년
       </button>
+
     </div>
   `;
 }
 
-function bindQuickRanges(onChanged) {
+function bindQuickRanges(
+  onChanged
+) {
   $$('[data-range-days]')
-    .forEach(b => {
-      b.onclick = () => {
-        const f =
-          document.getElementById(
-            b.dataset.from
-          );
+    .forEach(
+      b => {
+        b.onclick =
+          () => {
+            const f =
+              document.getElementById(
+                b.dataset.from
+              );
 
-        const t =
-          document.getElementById(
-            b.dataset.to
-          );
+            const t =
+              document.getElementById(
+                b.dataset.to
+              );
 
-        if (!f || !t) return;
+            if (
+              !f ||
+              !t
+            ) {
+              return;
+            }
 
-        f.value =
-          daysAgo(
-            +b.dataset.rangeDays
-          );
+            f.value =
+              daysAgo(
+                +b.dataset.rangeDays
+              );
 
-        t.value =
-          dateISO(new Date());
+            t.value =
+              dateISO(
+                new Date()
+              );
 
-        if (onChanged) {
-          onChanged(
-            f.value,
-            t.value
-          );
-        }
-      };
-    });
+            onChanged?.(
+              f.value,
+              t.value
+            );
+          };
+      }
+    );
 
   $$('[data-range-years]')
-    .forEach(b => {
-      b.onclick = () => {
-        const f =
-          document.getElementById(
-            b.dataset.from
-          );
+    .forEach(
+      b => {
+        b.onclick =
+          () => {
+            const f =
+              document.getElementById(
+                b.dataset.from
+              );
 
-        const t =
-          document.getElementById(
-            b.dataset.to
-          );
+            const t =
+              document.getElementById(
+                b.dataset.to
+              );
 
-        if (!f || !t) return;
+            if (
+              !f ||
+              !t
+            ) {
+              return;
+            }
 
-        f.value =
-          yearsAgo(
-            +b.dataset.rangeYears
-          );
+            f.value =
+              yearsAgo(
+                +b.dataset.rangeYears
+              );
 
-        t.value =
-          dateISO(new Date());
+            t.value =
+              dateISO(
+                new Date()
+              );
 
-        if (onChanged) {
-          onChanged(
-            f.value,
-            t.value
-          );
-        }
-      };
-    });
+            onChanged?.(
+              f.value,
+              t.value
+            );
+          };
+      }
+    );
 }
 
-function parseDishes(raw = '') {
+function parseDishes(
+  raw = ''
+) {
   return String(raw)
-    .split(/<br\s*\/?>|\n/gi)
-    .map(v => v.trim())
+    .split(
+      /<br\s*\/?>|\n/gi
+    )
+    .map(
+      v => v.trim()
+    )
     .filter(Boolean)
-    .map(line => {
-      const nums =
-        [...line.matchAll(/\(([\d.]+)\)/g)]
-          .flatMap(m =>
-            m[1]
-              .split('.')
-              .filter(Boolean)
-          );
+    .map(
+      line => {
+        const nums =
+          [
+            ...line.matchAll(
+              /\(([\d.]+)\)/g
+            )
+          ]
+            .flatMap(
+              m =>
+                m[1]
+                  .split('.')
+                  .filter(Boolean)
+            );
 
-      return {
-        name:
-          line
-            .replace(/\([^)]*\)/g, '')
-            .trim(),
+        return {
+          name:
+            line
+              .replace(
+                /\([^)]*\)/g,
+                ''
+              )
+              .trim(),
 
-        allergy:
-          [...new Set(nums)]
-      };
-    })
-    .filter(x => x.name);
+          allergy:
+            [...new Set(nums)]
+        };
+      }
+    )
+    .filter(
+      x => x.name
+    );
 }
 
-function menuMatches(name, keyword, similar) {
-  const n = normalize(name);
-  const k = normalize(keyword);
+function menuMatches(
+  name,
+  keyword,
+  similar
+) {
+  const n =
+    normalize(name);
 
-  if (!k) {
+  const k =
+    normalize(keyword);
+
+  if (
+    !k
+  ) {
     return false;
   }
 
@@ -719,10 +1210,17 @@ function formatDate(v) {
     : '-';
 }
 
-function setStatus(msg, error = false) {
+function setStatus(
+  msg,
+  error = false
+) {
   $('#status').innerHTML = `
     <div
-      class="status ${error ? 'error' : ''}"
+      class="status ${
+        error
+          ? 'error'
+          : ''
+      }"
     >
       ${msg}
     </div>
@@ -740,9 +1238,12 @@ function isPinnedMenu(name) {
   const key =
     normalize(name);
 
-  return [...state.favorites]
-    .some(v =>
-      normalize(v) === key
+  return [
+    ...state.favorites
+  ]
+    .some(
+      v =>
+        normalize(v) === key
     );
 }
 
@@ -751,15 +1252,25 @@ function togglePinnedMenu(name) {
     normalize(name);
 
   const old =
-    [...state.favorites]
-      .find(v =>
-        normalize(v) === key
+    [
+      ...state.favorites
+    ]
+      .find(
+        v =>
+          normalize(v) === key
       );
 
-  if (old) {
-    state.favorites.delete(old);
+  if (
+    old
+  ) {
+    state.favorites.delete(
+      old
+    );
+
   } else {
-    state.favorites.add(name);
+    state.favorites.add(
+      name
+    );
   }
 
   persist();
@@ -776,10 +1287,14 @@ function togglePinnedMenu(name) {
    📊 리포트 → 스크랩북 저장
 ═════════════════════════════ */
 function saveCurrentReportToScrapbook() {
-  if (!_report || !state.mine) {
+  if (
+    !_report ||
+    !state.mine
+  ) {
     alert(
       '먼저 식단 리포트를 생성해주세요.'
     );
+
     return;
   }
 
@@ -803,54 +1318,86 @@ function saveCurrentReportToScrapbook() {
     dessert: new Map()
   };
 
-  rows.forEach(r => {
-    parseDishes(r.dishes)
-      .forEach(d => {
-        const key =
-          normalize(d.name);
+  rows
+    .forEach(
+      r => {
+        parseDishes(
+          r.dishes
+        )
+          .forEach(
+            d => {
+              const key =
+                normalize(
+                  d.name
+                );
 
-        if (!key) {
-          return;
-        }
+              if (
+                !key
+              ) {
+                return;
+              }
 
-        const v =
-          menuMap.get(key) ||
-          {
-            name: d.name,
-            count: 0,
-            latest: '',
-            cat: classify(d.name)
-          };
+              const v =
+                menuMap.get(key) ||
+                {
+                  name:
+                    d.name,
 
-        v.count++;
+                  count:
+                    0,
 
-        if (r.date > v.latest) {
-          v.latest = r.date;
-        }
+                  latest:
+                    '',
 
-        menuMap.set(
-          key,
-          v
-        );
+                  cat:
+                    classify(
+                      d.name
+                    )
+                };
 
-        addCount(
-          cats[v.cat],
-          d,
-          r.school,
-          r.date
-        );
-      });
-  });
+              v.count++;
+
+              if (
+                r.date >
+                v.latest
+              ) {
+                v.latest =
+                  r.date;
+              }
+
+              menuMap.set(
+                key,
+                v
+              );
+
+              addCount(
+                cats[v.cat],
+                d,
+                r.school,
+                r.date
+              );
+            }
+          );
+      }
+    );
 
   const topNames =
     cat =>
-      [...cats[cat].values()]
+      [
+        ...cats[cat].values()
+      ]
         .sort(
           (a, b) =>
-            b.count - a.count
+            b.count -
+            a.count
         )
-        .slice(0, 5)
-        .map(x => x.name);
+        .slice(
+          0,
+          5
+        )
+        .map(
+          x => x.name
+        );
 
   const topMain =
     topNames('main');
@@ -859,7 +1406,9 @@ function saveCurrentReportToScrapbook() {
     topNames('side');
 
   const pinned =
-    [...state.favorites];
+    [
+      ...state.favorites
+    ];
 
   if (
     !state.folders.includes(
@@ -909,7 +1458,7 @@ function saveCurrentReportToScrapbook() {
     )
   ];
 
-  const sameReport =
+  const same =
     state.scraps.find(
       sc =>
         sc.type === 'report' &&
@@ -920,18 +1469,20 @@ function saveCurrentReportToScrapbook() {
         (
           sc.snapshot?.keyword ||
           ''
-        ) === (
+        ) ===
+        (
           keyword ||
           ''
         )
     );
 
-  const reportScrap = {
+  const report = {
     schemaV: 2,
 
     id:
-      sameReport?.id ||
-      Date.now().toString(36) +
+      same?.id ||
+      Date.now()
+        .toString(36) +
       Math.random()
         .toString(36)
         .slice(2, 6),
@@ -998,33 +1549,39 @@ function saveCurrentReportToScrapbook() {
     }
   };
 
-  if (sameReport) {
-    const idx =
-      state.scraps.findIndex(
-        sc =>
-          sc.id ===
-          sameReport.id
-      );
+  if (
+    same
+  ) {
+    const i =
+      state.scraps
+        .findIndex(
+          sc =>
+            sc.id ===
+            same.id
+        );
 
-    state.scraps[idx] =
-      reportScrap;
+    state.scraps[i] =
+      report;
 
   } else {
-    state.scraps.unshift(
-      reportScrap
-    );
+    state.scraps
+      .unshift(
+        report
+      );
   }
 
   persist();
 
   alert(
-    sameReport
+    same
       ? `📊 ${today} 리포트를 최신 내용으로 업데이트했습니다.`
       : `📊 ${today} 리포트를 스크랩북의 '리포트 분석' 폴더에 저장했습니다.`
   );
 }
 
-/* ══ 로그인 ══ */
+/* ═════════════════════════════
+   로그인 / 로그아웃
+═════════════════════════════ */
 async function doSignIn() {
   try {
     await signInWithPopup(
@@ -1058,28 +1615,115 @@ async function doSignIn() {
       );
 
     } else if (
-      code ===
-      'auth/popup-closed-by-user' ||
-      code ===
-      'auth/cancelled-popup-request'
+      code !==
+        'auth/popup-closed-by-user' &&
+      code !==
+        'auth/cancelled-popup-request'
     ) {
-      // 사용자가 닫은 경우 무시
-
-    } else {
       alert(
         `로그인에 실패했어요.\n` +
-        `오류 코드: ${code || e.message || '알 수 없음'}\n\n` +
-        `로그인하지 않아도 스크랩·별점은 이 브라우저에 저장돼요.`
+        `오류 코드: ${
+          code ||
+          e.message ||
+          '알 수 없음'
+        }`
       );
     }
   }
 }
 
-async function doSignOut() {
-  await signOut(auth);
+/* 로그아웃 시 이 브라우저에 남은 개인 데이터 삭제 */
+function clearPrivateBrowserData() {
+  [
+    'archive_my_school',
+    'archive_compare_schools',
+    'archive_favorites',
+    'archive_scraps',
+    'archive_ratings',
+    'archive_folders',
+    'archive_menu_memos',
+    'archive_report_note',
+    'archive_base_folder'
+  ]
+    .forEach(
+      key =>
+        localStorage.removeItem(
+          key
+        )
+    );
 }
 
-/* ══ 화면 ══ */
+/* 화면의 개인 상태 초기화 */
+function resetPrivateState() {
+  state.mine =
+    null;
+
+  state.comparisons =
+    [];
+
+  state.favorites =
+    new Set();
+
+  state.scraps =
+    [];
+
+  state.ratings =
+    {};
+
+  state.folders =
+    [...DEFAULT_FOLDERS];
+
+  state.menuMemos =
+    {};
+
+  state.reportNote =
+    '';
+
+  state.baseFolder =
+    '기본 폴더';
+
+  state.loaded =
+    [];
+
+  state.tab =
+    'mine';
+
+  state.similar =
+    true;
+
+  _report =
+    null;
+}
+
+async function doSignOut() {
+  try {
+    await signOut(auth);
+
+    /* Firebase 자료는 삭제하지 않고
+       현재 PC에 남은 자료만 지움 */
+    clearPrivateBrowserData();
+
+    resetPrivateState();
+
+    user =
+      null;
+
+    cloudReady =
+      false;
+
+    shell();
+
+  } catch (e) {
+    console.error(
+      '로그아웃 실패',
+      e
+    );
+  }
+}
+
+/* ═════════════════════════════
+   기본 화면
+═════════════════════════════ */
 function shell() {
   $('#app').innerHTML = `
     <header class="top">
@@ -1145,6 +1789,7 @@ function shell() {
     <main class="wrap">
 
       <section class="hero">
+
         <h1>
           내 식단과 다른 학교의<br>
           실제 메뉴 조합을 검색하세요
@@ -1164,9 +1809,8 @@ function shell() {
                 class="help"
                 style="margin-top:6px"
               >
-                💡 Google 로그인하면 스크랩·핀·별점·설정이
-                클라우드에 저장되어 어느 기기에서든 이어서
-                쓸 수 있어요.
+                🔐 로그인하면 내 학교·스크랩·핀·리포트를 불러옵니다.
+                로그아웃하면 이 기기에서는 개인자료가 보이지 않아요.
               </p>
             `
         }
@@ -1176,35 +1820,55 @@ function shell() {
       <div class="tabs">
 
         <button
-          class="tab ${state.tab === 'mine' ? 'active' : ''}"
+          class="tab ${
+            state.tab === 'mine'
+              ? 'active'
+              : ''
+          }"
           data-tab="mine"
         >
           내 식단 아카이브
         </button>
 
         <button
-          class="tab ${state.tab === 'compare' ? 'active' : ''}"
+          class="tab ${
+            state.tab === 'compare'
+              ? 'active'
+              : ''
+          }"
           data-tab="compare"
         >
           같은 학교급 3개교 비교
         </button>
 
         <button
-          class="tab ${state.tab === 'trend' ? 'active' : ''}"
+          class="tab ${
+            state.tab === 'trend'
+              ? 'active'
+              : ''
+          }"
           data-tab="trend"
         >
           🔥 요즘 뜨는 메뉴
         </button>
 
         <button
-          class="tab ${state.tab === 'report' ? 'active' : ''}"
+          class="tab ${
+            state.tab === 'report'
+              ? 'active'
+              : ''
+          }"
           data-tab="report"
         >
           📊 내 식단 리포트
         </button>
 
         <button
-          class="tab ${state.tab === 'scrap' ? 'active' : ''}"
+          class="tab ${
+            state.tab === 'scrap'
+              ? 'active'
+              : ''
+          }"
           data-tab="scrap"
         >
           📌 스크랩북
@@ -1233,27 +1897,34 @@ function shell() {
     <div id="modal"></div>
   `;
 
-  if (user) {
+  if (
+    user
+  ) {
     $('#logoutBtn').onclick =
       doSignOut;
+
   } else {
     $('#loginBtn').onclick =
       doSignIn;
   }
 
   $$('[data-tab]')
-    .forEach(b => {
-      b.onclick = () => {
-        state.tab =
-          b.dataset.tab;
+    .forEach(
+      b => {
+        b.onclick =
+          () => {
+            state.tab =
+              b.dataset.tab;
 
-        shell();
-      };
-    });
+            shell();
+          };
+      }
+    );
 
   renderControls();
 
   if (
+    user &&
     !state.mine &&
     [
       'mine',
@@ -1272,7 +1943,10 @@ function commonFields() {
     <div class="grid">
 
       <div class="field">
-        <label>시작일</label>
+        <label>
+          시작일
+        </label>
+
         <input
           id="from"
           type="date"
@@ -1281,7 +1955,10 @@ function commonFields() {
       </div>
 
       <div class="field">
-        <label>종료일</label>
+        <label>
+          종료일
+        </label>
+
         <input
           id="to"
           type="date"
@@ -1290,7 +1967,10 @@ function commonFields() {
       </div>
 
       <div class="field">
-        <label>기준 메뉴</label>
+        <label>
+          기준 메뉴
+        </label>
+
         <input
           id="keyword"
           value="미역국"
@@ -1299,18 +1979,25 @@ function commonFields() {
       </div>
 
       <div class="field">
-        <label>분석 방식</label>
+
+        <label>
+          분석 방식
+        </label>
 
         <select id="mode">
+
           <option value="all">
             주찬·부찬 모두
           </option>
+
           <option value="main">
             주찬 중심
           </option>
+
           <option value="side">
             부찬 중심
           </option>
+
         </select>
 
       </div>
@@ -1321,20 +2008,28 @@ function commonFields() {
       class="field"
       style="margin-top:10px"
     >
+
       <label>
         빠른 기간
       </label>
 
-      ${quickRangeButtons(
-        'from',
-        'to'
-      )}
+      ${
+        quickRangeButtons(
+          'from',
+          'to'
+        )
+      }
+
     </div>
 
     <div class="toggleline">
 
       <button
-        class="toggle ${state.similar ? 'on' : ''}"
+        class="toggle ${
+          state.similar
+            ? 'on'
+            : ''
+        }"
         id="similar"
       ></button>
 
@@ -1356,9 +2051,35 @@ function renderControls() {
   $('#results').innerHTML =
     '';
 
+  /* 로그아웃 상태 */
   if (
-    state.tab ===
-    'mine'
+    !user
+  ) {
+    c.innerHTML = `
+      <section class="panel">
+
+        <h2>
+          🔐 개인 식단 아카이브
+        </h2>
+
+        <div
+          class="empty"
+          style="margin-top:12px"
+        >
+          Google 로그인하면 내 학교 설정과
+          스크랩·핀·리포트를 불러옵니다.
+          <br>
+          로그아웃 상태에서는 개인 저장자료를 표시하지 않습니다.
+        </div>
+
+      </section>
+    `;
+
+    return;
+  }
+
+  if (
+    state.tab === 'mine'
   ) {
     c.innerHTML = `
       <section class="panel">
@@ -1423,8 +2144,7 @@ function renderControls() {
       analyze;
 
   } else if (
-    state.tab ===
-    'compare'
+    state.tab === 'compare'
   ) {
     c.innerHTML = `
       <section class="panel">
@@ -1450,6 +2170,7 @@ function renderControls() {
         <div class="school-layout">
 
           <div class="box">
+
             <h3>
               내 학교
             </h3>
@@ -1464,6 +2185,7 @@ function renderControls() {
                   : '<span class="help">내 학교 미등록</span>'
               }
             </div>
+
           </div>
 
           <div class="box">
@@ -1517,7 +2239,8 @@ function renderControls() {
         </div>
 
         <div class="warn">
-          내 학교 1개 + 같은 학교급 비교학교 최대 3개
+          내 학교 1개 +
+          같은 학교급 비교학교 최대 3개
           · 조회 기간 최대 3년
         </div>
 
@@ -1531,20 +2254,23 @@ function renderControls() {
         );
 
     $$('[data-remove-school]')
-      .forEach(b => {
-        b.onclick = () => {
-          state.comparisons =
-            state.comparisons
-              .filter(
-                s =>
-                  schoolKey(s) !==
-                  b.dataset.removeSchool
-              );
+      .forEach(
+        b => {
+          b.onclick =
+            () => {
+              state.comparisons =
+                state.comparisons
+                  .filter(
+                    s =>
+                      schoolKey(s) !==
+                      b.dataset.removeSchool
+                  );
 
-          persist();
-          renderControls();
-        };
-      });
+              persist();
+              renderControls();
+            };
+        }
+      );
 
     bindCommon();
 
@@ -1552,8 +2278,7 @@ function renderControls() {
       analyze;
 
   } else if (
-    state.tab ===
-    'trend'
+    state.tab === 'trend'
   ) {
     c.innerHTML = `
       <section class="panel">
@@ -1566,9 +2291,11 @@ function renderControls() {
           class="help"
           style="margin:6px 0 12px"
         >
-          내 학교와 비교학교의 실제 식단을 선택한 기간 동안
-          분석합니다. 최대 3년까지 볼 수 있고, 같은 기간
-          내 학교에 없었던 메뉴는 ✨NEW로 표시해요.
+          내 학교와 비교학교의 실제 식단을
+          선택한 기간 동안 분석합니다.
+          최대 3년까지 볼 수 있고,
+          같은 기간 내 학교에 없었던 메뉴는
+          ✨NEW로 표시해요.
         </p>
 
         <div
@@ -1621,10 +2348,12 @@ function renderControls() {
               빠른 기간
             </label>
 
-            ${quickRangeButtons(
-              'tFrom',
-              'tTo'
-            )}
+            ${
+              quickRangeButtons(
+                'tFrom',
+                'tTo'
+              )
+            }
           </div>
 
         </div>
@@ -1633,12 +2362,14 @@ function renderControls() {
           class="row"
           style="margin-top:13px"
         >
+
           <button
             class="btn"
             id="trendGo"
           >
             트렌드 분석
           </button>
+
         </div>
 
       </section>
@@ -1650,8 +2381,7 @@ function renderControls() {
       analyzeTrend;
 
   } else if (
-    state.tab ===
-    'report'
+    state.tab === 'report'
   ) {
     c.innerHTML = `
       <section class="panel">
@@ -1664,14 +2394,17 @@ function renderControls() {
           class="help"
           style="margin:6px 0 12px"
         >
-          기간과 키워드를 정해 내 학교 식단을 분석합니다.
-          최대 3년까지 조회할 수 있으며, 비교학교 참고 메뉴도
-          같은 선택 기간을 기준으로 분석합니다.
+          기간과 키워드를 정해
+          내 학교 식단을 분석합니다.
+          최대 3년까지 조회할 수 있으며,
+          비교학교 참고 메뉴도 같은 선택 기간을
+          기준으로 분석합니다.
         </p>
 
         <div class="grid">
 
           <div class="field">
+
             <label>
               시작일
             </label>
@@ -1681,9 +2414,11 @@ function renderControls() {
               type="date"
               value="${threeYearsAgo()}"
             >
+
           </div>
 
           <div class="field">
+
             <label>
               종료일
             </label>
@@ -1693,9 +2428,11 @@ function renderControls() {
               type="date"
               value="${dateISO(new Date())}"
             >
+
           </div>
 
           <div class="field">
+
             <label>
               키워드 분석 (선택)
             </label>
@@ -1704,17 +2441,22 @@ function renderControls() {
               id="rKeyword"
               placeholder="예: 미역국 — 비우면 전체만"
             >
+
           </div>
 
           <div class="field">
+
             <label>
               빠른 기간
             </label>
 
-            ${quickRangeButtons(
-              'rFrom',
-              'rTo'
-            )}
+            ${
+              quickRangeButtons(
+                'rFrom',
+                'rTo'
+              )
+            }
+
           </div>
 
         </div>
@@ -1723,12 +2465,14 @@ function renderControls() {
           class="row"
           style="margin-top:13px"
         >
+
           <button
             class="btn"
             id="reportGo"
           >
             리포트 생성
           </button>
+
         </div>
 
       </section>
@@ -1740,8 +2484,7 @@ function renderControls() {
       analyzeReport;
 
   } else if (
-    state.tab ===
-    'scrap'
+    state.tab === 'scrap'
   ) {
     renderScrapbook();
   }
@@ -1770,6 +2513,7 @@ function schoolChip(
 ) {
   return `
     <span class="chip">
+
       ${esc(s.schoolName)}
 
       ${
@@ -1783,11 +2527,14 @@ function schoolChip(
           `
           : ''
       }
+
     </span>
   `;
 }
 
-/* ══ 학교 검색 ══ */
+/* ═════════════════════════════
+   학교 검색
+═════════════════════════════ */
 function openSchoolModal(type) {
   const m =
     $('#modal');
@@ -1804,6 +2551,7 @@ function openSchoolModal(type) {
 
   m.innerHTML = `
     <div class="modal">
+
       <div class="modal-card">
 
         <h2>
@@ -1848,15 +2596,18 @@ function openSchoolModal(type) {
             margin-top:14px
           "
         >
+
           <button
             class="btn ghost"
             id="closeModal"
           >
             닫기
           </button>
+
         </div>
 
       </div>
+
     </div>
   `;
 
@@ -1870,7 +2621,9 @@ function openSchoolModal(type) {
 
   $('#schoolQuery').onkeydown =
     e => {
-      if (e.key === 'Enter') {
+      if (
+        e.key === 'Enter'
+      ) {
         searchSchools(type);
       }
     };
@@ -1918,7 +2671,9 @@ async function searchSchools(type) {
     const data =
       await r.json();
 
-    if (!r.ok) {
+    if (
+      !r.ok
+    ) {
       throw Error(
         data.error ||
         '학교 검색 실패'
@@ -1946,6 +2701,7 @@ async function searchSchools(type) {
               class="school-item"
               data-school='${esc(JSON.stringify(s))}'
             >
+
               <b>
                 ${esc(s.schoolName)}
               </b>
@@ -1963,16 +2719,18 @@ async function searchSchools(type) {
       '<div class="empty">조건에 맞는 학교가 없습니다.</div>';
 
     $$('.school-item')
-      .forEach(b => {
-        b.onclick =
-          () =>
-            selectSchool(
-              JSON.parse(
-                b.dataset.school
-              ),
-              type
-            );
-      });
+      .forEach(
+        b => {
+          b.onclick =
+            () =>
+              selectSchool(
+                JSON.parse(
+                  b.dataset.school
+                ),
+                type
+              );
+        }
+      );
 
   } catch (e) {
     st.textContent =
@@ -1980,7 +2738,10 @@ async function searchSchools(type) {
   }
 }
 
-function selectSchool(s, type) {
+function selectSchool(
+  s,
+  type
+) {
   if (
     type === 'mine'
   ) {
@@ -1991,14 +2752,20 @@ function selectSchool(s, type) {
       state.comparisons
         .filter(
           x =>
-            x.level === s.level &&
+            x.level ===
+              s.level &&
             schoolKey(x) !==
-            schoolKey(s)
+              schoolKey(s)
         )
-        .slice(0, 3);
+        .slice(
+          0,
+          3
+        );
 
   } else {
-    if (!state.mine) {
+    if (
+      !state.mine
+    ) {
       return;
     }
 
@@ -2040,7 +2807,8 @@ function selectSchool(s, type) {
     }
 
     if (
-      state.comparisons.length >= 3
+      state.comparisons.length >=
+      3
     ) {
       alert(
         '비교학교는 최대 3개까지 선택할 수 있습니다.'
@@ -2062,7 +2830,9 @@ function selectSchool(s, type) {
   shell();
 }
 
-/* ══ 식단 API ══ */
+/* ═════════════════════════════
+   식단 API
+═════════════════════════════ */
 async function fetchMeals(
   school,
   from,
@@ -2081,9 +2851,14 @@ async function fetchMeals(
   const rows =
     await r.json();
 
-  if (!r.ok) {
+  if (
+    !r.ok
+  ) {
     throw Error(
-      `${school.schoolName}: ${rows.error || '식단 조회 실패'}`
+      `${school.schoolName}: ${
+        rows.error ||
+        '식단 조회 실패'
+      }`
     );
   }
 
@@ -2095,9 +2870,13 @@ async function fetchMeals(
   );
 }
 
-/* ══ 조합 검색 ══ */
+/* ═════════════════════════════
+   조합 검색
+═════════════════════════════ */
 async function analyze() {
-  if (!state.mine) {
+  if (
+    !state.mine
+  ) {
     openSchoolModal(
       'mine'
     );
@@ -2129,15 +2908,17 @@ async function analyze() {
     return;
   }
 
-  const rangeError =
+  const err =
     validateRange(
       from,
       to
     );
 
-  if (rangeError) {
+  if (
+    err
+  ) {
     setStatus(
-      rangeError,
+      err,
       true
     );
 
@@ -2146,7 +2927,9 @@ async function analyze() {
 
   const targets =
     state.tab === 'mine'
-      ? [state.mine]
+      ? [
+          state.mine
+        ]
       : [
           state.mine,
           ...state.comparisons
@@ -2248,18 +3031,16 @@ function analyzeMeals(
           )
       );
 
-    if (!hit) {
+    if (
+      !hit
+    ) {
       continue;
     }
 
-    const enriched = {
+    matched.push({
       ...row,
       dishes
-    };
-
-    matched.push(
-      enriched
-    );
+    });
 
     for (
       const dish
@@ -2305,12 +3086,13 @@ function analyzeMeals(
 
   return {
     meals:
-      matched.sort(
-        (a, b) =>
-          b.date.localeCompare(
-            a.date
-          )
-      ),
+      matched
+        .sort(
+          (a, b) =>
+            b.date.localeCompare(
+              a.date
+            )
+        ),
 
     main:
       rank(mainMap),
@@ -2331,17 +3113,26 @@ function addCount(
       dish.name
     );
 
-  if (!key) {
+  if (
+    !key
+  ) {
     return;
   }
 
   const v =
     map.get(key) ||
     {
-      name: dish.name,
-      count: 0,
-      schools: new Set(),
-      latest: ''
+      name:
+        dish.name,
+
+      count:
+        0,
+
+      schools:
+        new Set(),
+
+      latest:
+        ''
     };
 
   v.count++;
@@ -2364,7 +3155,9 @@ function addCount(
 }
 
 function rank(map) {
-  return [...map.values()]
+  return [
+    ...map.values()
+  ]
     .sort(
       (a, b) =>
         b.count -
@@ -2389,8 +3182,10 @@ function renderResults(
     <div class="section-title">
 
       <div>
+
         <h2>
-          '${esc(keyword)}' 실제 식단 분석
+          '${esc(keyword)}'
+          실제 식단 분석
         </h2>
 
         <p>
@@ -2407,12 +3202,14 @@ function renderResults(
               .join(', ')
           }
         </p>
+
       </div>
 
       <div
         class="row"
         style="gap:6px"
       >
+
         <button
           class="btn ghost small"
           id="scrapResult"
@@ -2426,6 +3223,7 @@ function renderResults(
         >
           결과 복사
         </button>
+
       </div>
 
     </div>
@@ -2462,28 +3260,39 @@ function renderResults(
     </div>
 
     <div class="analysis">
-      ${rankCard(
-        '함께 편성한 주찬',
-        a.main
-      )}
 
-      ${rankCard(
-        '함께 편성한 부찬',
-        a.side
-      )}
+      ${
+        rankCard(
+          '함께 편성한 주찬',
+          a.main
+        )
+      }
+
+      ${
+        rankCard(
+          '함께 편성한 부찬',
+          a.side
+        )
+      }
+
     </div>
 
     <div class="section-title">
+
       <div>
+
         <h2>
           실제 식단 카드
         </h2>
 
         <p>
           나이스 API에서 검색된 학교별 실제 편성 식단입니다.
-          내 학교가 맨 왼쪽, 각 학교는 최신 날짜순입니다.
+          내 학교가 맨 왼쪽,
+          각 학교는 최신 날짜순입니다.
         </p>
+
       </div>
+
     </div>
 
     ${
@@ -2517,7 +3326,9 @@ function renderMealsBySchool(
   targets,
   keyword
 ) {
-  if (!meals.length) {
+  if (
+    !meals.length
+  ) {
     return `
       <div class="empty">
         검색 메뉴가 포함된 실제 식단이 없습니다.
@@ -2556,25 +3367,27 @@ function renderMealsBySchool(
       )
   );
 
-  meals.forEach(m => {
-    const k =
-      schoolKey(
-        m.school
-      );
+  meals.forEach(
+    m => {
+      const k =
+        schoolKey(
+          m.school
+        );
 
-    if (
-      !bySchool.has(k)
-    ) {
-      bySchool.set(
-        k,
-        []
-      );
+      if (
+        !bySchool.has(k)
+      ) {
+        bySchool.set(
+          k,
+          []
+        );
+      }
+
+      bySchool
+        .get(k)
+        .push(m);
     }
-
-    bySchool
-      .get(k)
-      .push(m);
-  });
+  );
 
   return `
     <div
@@ -2583,65 +3396,67 @@ function renderMealsBySchool(
     >
       ${
         targets
-          .map(t => {
-            const items =
-              (
-                bySchool.get(
-                  schoolKey(t)
-                ) ||
-                []
-              )
-                .sort(
-                  (a, b) =>
-                    b.date.localeCompare(
-                      a.date
-                    )
-                );
+          .map(
+            t => {
+              const items =
+                (
+                  bySchool.get(
+                    schoolKey(t)
+                  ) ||
+                  []
+                )
+                  .sort(
+                    (a, b) =>
+                      b.date.localeCompare(
+                        a.date
+                      )
+                  );
 
-            const isMine =
-              state.mine &&
-              t.schoolCode ===
-              state.mine.schoolCode;
+              const isMine =
+                state.mine &&
+                t.schoolCode ===
+                  state.mine.schoolCode;
 
-            return `
-              <div class="school-col">
+              return `
+                <div class="school-col">
 
-                <h3 class="school-col-title">
+                  <h3 class="school-col-title">
 
-                  ${esc(t.schoolName)}
+                    ${esc(t.schoolName)}
+
+                    ${
+                      isMine
+                        ? '<span class="mine-tag">내 학교</span>'
+                        : ''
+                    }
+
+                    <small
+                      class="help"
+                      style="margin-left:6px"
+                    >
+                      ${items.length}일
+                    </small>
+
+                  </h3>
 
                   ${
-                    isMine
-                      ? '<span class="mine-tag">내 학교</span>'
-                      : ''
+                    items.length
+                      ? items
+                          .map(
+                            m =>
+                              mealCard(
+                                m,
+                                keyword
+                              )
+                          )
+                          .join('')
+                      : '<div class="empty">해당 기간 편성 없음</div>'
                   }
 
-                  <small
-                    class="help"
-                    style="margin-left:6px"
-                  >
-                    ${items.length}일
-                  </small>
-
-                </h3>
-
-                ${
-                  items.length
-                    ? items
-                        .map(
-                          m =>
-                            mealCard(
-                              m,
-                              keyword
-                            )
-                        )
-                        .join('')
-                    : '<div class="empty">해당 기간 편성 없음</div>'
-                }
-
-              </div>
-            `;
-          })
+                </div>
+              `;
+            }
+          )
           .join('')
       }
     </div>
@@ -2671,6 +3486,7 @@ function rankCard(
                     </span>
 
                     <div>
+
                       <b>
                         ${esc(x.name)}
                       </b>
@@ -2686,6 +3502,7 @@ function rankCard(
                             : '-'
                         }
                       </small>
+
                     </div>
 
                     <strong>
@@ -2710,7 +3527,7 @@ function mealCard(
   const isMine =
     state.mine &&
     m.school.schoolCode ===
-    state.mine.schoolCode;
+      state.mine.schoolCode;
 
   const dkey =
     `${m.date.slice(0,4)}-` +
@@ -2776,6 +3593,7 @@ function mealCard(
               class="stars"
               data-stars="${dkey}"
             >
+
               ${
                 [1,2,3,4,5]
                   .map(
@@ -2806,6 +3624,7 @@ function mealCard(
                     : '내 별점 (나만 보여요)'
                 }
               </small>
+
             </div>
           `
           : ''
@@ -2824,14 +3643,15 @@ function mealCard(
           data-scrap-meal='${
             esc(
               JSON.stringify({
-                type: 'meal',
+                type:
+                  'meal',
 
                 title:
                   m.dishes
                     .map(
                       d => d.name
                     )
-                    .slice(0,3)
+                    .slice(0, 3)
                     .join('·'),
 
                 menus:
@@ -2883,81 +3703,88 @@ function mealCard(
 function bindMealCards() {
   $$('[data-copy-meal]')
     .forEach(
-      b =>
-        b.onclick = () => {
-          navigator
-            .clipboard
-            .writeText(
-              b.dataset.copyMeal
-            );
+      b => {
+        b.onclick =
+          () => {
+            navigator.clipboard
+              .writeText(
+                b.dataset.copyMeal
+              );
 
-          alert(
-            '복사했습니다.'
-          );
-        }
+            alert(
+              '복사했습니다.'
+            );
+          };
+      }
     );
 
   $$('[data-scrap-meal]')
     .forEach(
-      b =>
-        b.onclick = () =>
-          openScrapModal(
-            JSON.parse(
-              b.dataset.scrapMeal
-            )
-          )
+      b => {
+        b.onclick =
+          () =>
+            openScrapModal(
+              JSON.parse(
+                b.dataset.scrapMeal
+              )
+            );
+      }
     );
 
   $$('[data-stars]')
-    .forEach(box => {
-      const dkey =
-        box.dataset.stars;
+    .forEach(
+      box => {
+        const dkey =
+          box.dataset.stars;
 
-      box
-        .querySelectorAll(
-          '.star'
-        )
-        .forEach(
-          st =>
-            st.onclick = () => {
-              const n =
-                +st.dataset.star;
+        box
+          .querySelectorAll(
+            '.star'
+          )
+          .forEach(
+            st => {
+              st.onclick =
+                () => {
+                  const n =
+                    +st.dataset.star;
 
-              const cur =
-                state.ratings[dkey];
+                  const cur =
+                    state.ratings[dkey];
 
-              if (
-                cur &&
-                cur.stars === n
-              ) {
-                delete state.ratings[dkey];
+                  if (
+                    cur &&
+                    cur.stars === n
+                  ) {
+                    delete state.ratings[dkey];
 
-              } else {
-                state.ratings[dkey] = {
-                  ...(cur || {}),
-                  stars: n
-                };
-              }
-
-              persist();
-
-              box
-                .querySelectorAll(
-                  '.star'
-                )
-                .forEach(
-                  s2 => {
-                    s2.classList.toggle(
-                      'on',
-                      state.ratings[dkey] &&
-                      state.ratings[dkey].stars >=
-                      +s2.dataset.star
-                    );
+                  } else {
+                    state.ratings[dkey] = {
+                      ...(cur || {}),
+                      stars: n
+                    };
                   }
-                );
+
+                  persist();
+
+                  box
+                    .querySelectorAll(
+                      '.star'
+                    )
+                    .forEach(
+                      s2 => {
+                        s2.classList.toggle(
+                          'on',
+                          state.ratings[dkey] &&
+                          state.ratings[dkey].stars >=
+                            +s2.dataset.star
+                        );
+                      }
+                    );
+                };
             }
-        );
-    });
+          );
+      }
+    );
 }
 
 function copySummary(
@@ -2969,7 +3796,7 @@ function copySummary(
 
     `주찬: ${
       a.main
-        .slice(0,10)
+        .slice(0, 10)
         .map(
           x =>
             `${x.name} ${x.count}회`
@@ -2979,7 +3806,7 @@ function copySummary(
 
     `부찬: ${
       a.side
-        .slice(0,10)
+        .slice(0, 10)
         .map(
           x =>
             `${x.name} ${x.count}회`
@@ -2991,8 +3818,7 @@ function copySummary(
   ]
     .join('\n');
 
-  navigator
-    .clipboard
+  navigator.clipboard
     .writeText(text);
 
   alert(
@@ -3058,7 +3884,9 @@ function scrapAnalysis(
   });
 }
 
-/* ══ 스크랩 저장 모달 ══ */
+/* ═════════════════════════════
+   스크랩 모달
+═════════════════════════════ */
 function openScrapModal(item) {
   const m =
     $('#modal');
@@ -3069,6 +3897,7 @@ function openScrapModal(item) {
 
   m.innerHTML = `
     <div class="modal">
+
       <div class="modal-card">
 
         <h2>
@@ -3079,7 +3908,8 @@ function openScrapModal(item) {
           ${esc(item.school || '')}
           ${
             item.date
-              ? '· ' + esc(item.date)
+              ? '· ' +
+                esc(item.date)
               : ''
           }
         </p>
@@ -3128,6 +3958,7 @@ function openScrapModal(item) {
           class="field"
           style="margin:10px 0"
         >
+
           <label>
             제목
           </label>
@@ -3136,6 +3967,7 @@ function openScrapModal(item) {
             id="scrapTitle"
             value="${esc(item.title || '')}"
           >
+
         </div>
 
         <div
@@ -3190,6 +4022,7 @@ function openScrapModal(item) {
             class="stars"
             id="scrapStars"
           >
+
             ${
               [1,2,3,4,5]
                 .map(
@@ -3204,6 +4037,7 @@ function openScrapModal(item) {
                 )
                 .join('')
             }
+
           </div>
 
         </div>
@@ -3251,6 +4085,7 @@ function openScrapModal(item) {
         </div>
 
       </div>
+
     </div>
   `;
 
@@ -3278,12 +4113,13 @@ function openScrapModal(item) {
 
       $$('#scrapStars .star')
         .forEach(
-          b =>
+          b => {
             b.classList.toggle(
               'on',
               +b.dataset.star <=
-              curStars
-            )
+                curStars
+            );
+          }
         );
     };
 
@@ -3305,16 +4141,18 @@ function openScrapModal(item) {
 
   $$('#scrapStars .star')
     .forEach(
-      b =>
-        b.onclick = () => {
-          curStars =
-            curStars ===
-            +b.dataset.star
-              ? 0
-              : +b.dataset.star;
+      b => {
+        b.onclick =
+          () => {
+            curStars =
+              curStars ===
+                +b.dataset.star
+                ? 0
+                : +b.dataset.star;
 
-          paint();
-        }
+            paint();
+          };
+      }
     );
 
   $('#scrapCancel').onclick =
@@ -3453,8 +4291,7 @@ function openScrapModal(item) {
       );
 
       if (
-        state.tab ===
-        'scrap'
+        state.tab === 'scrap'
       ) {
         renderScrapbook();
       }
@@ -3464,20 +4301,24 @@ function openScrapModal(item) {
 function bindIdeaScraps() {
   $$('[data-scrap-idea]')
     .forEach(
-      b =>
-        b.onclick = e => {
-          e.stopPropagation();
+      b => {
+        b.onclick =
+          e => {
+            e.stopPropagation();
 
-          openScrapModal(
-            JSON.parse(
-              b.dataset.scrapIdea
-            )
-          );
-        }
+            openScrapModal(
+              JSON.parse(
+                b.dataset.scrapIdea
+              )
+            );
+          };
+      }
     );
 }
 
-/* ══ 스크랩북 ══ */
+/* ═════════════════════════════
+   스크랩북 탭
+═════════════════════════════ */
 const scrapView = {
   q: '',
   scope: 'all',
@@ -3529,7 +4370,8 @@ function scrapText(
         sc.school,
         sc.memo,
         sc.sourcePeriod
-      ].join(' ');
+      ]
+        .join(' ');
   }
 }
 
@@ -3542,67 +4384,75 @@ function filteredScraps() {
 
   let list =
     state.scraps
-      .filter(sc => {
-        if (
-          v.folder !== '전체' &&
-          sc.folder !== v.folder
-        ) {
-          return false;
-        }
+      .filter(
+        sc => {
+          if (
+            v.folder !== '전체' &&
+            sc.folder !== v.folder
+          ) {
+            return false;
+          }
 
-        if (
-          v.type !== 'all' &&
-          sc.type !== v.type
-        ) {
-          return false;
-        }
+          if (
+            v.type !== 'all' &&
+            sc.type !== v.type
+          ) {
+            return false;
+          }
 
-        if (
-          v.stars &&
-          (sc.stars || 0) <
-          v.stars
-        ) {
-          return false;
-        }
+          if (
+            v.stars &&
+            (sc.stars || 0) <
+              v.stars
+          ) {
+            return false;
+          }
 
-        if (
-          v.from &&
-          (
-            !sc.servedDate ||
-            sc.servedDate <
-            v.from
-          )
-        ) {
-          return false;
-        }
-
-        if (
-          v.to &&
-          (
-            !sc.servedDate ||
-            sc.servedDate >
-            v.to
-          )
-        ) {
-          return false;
-        }
-
-        if (
-          q &&
-          !scrapText(
-            sc,
-            v.scope
-          )
-            .replace(/\s+/g, '')
-            .includes(
-              q.replace(/\s+/g, '')
+          if (
+            v.from &&
+            (
+              !sc.servedDate ||
+              sc.servedDate <
+                v.from
             )
-        ) {
-          return false;
-        }
+          ) {
+            return false;
+          }
 
-        return true;
-      });
+          if (
+            v.to &&
+            (
+              !sc.servedDate ||
+              sc.servedDate >
+                v.to
+            )
+          ) {
+            return false;
+          }
+
+          if (
+            q &&
+            !scrapText(
+              sc,
+              v.scope
+            )
+              .replace(
+                /\s+/g,
+                ''
+              )
+              .includes(
+                q.replace(
+                  /\s+/g,
+                  ''
+                )
+              )
+          ) {
+            return false;
+          }
+
+          return true;
+        }
+      );
 
   const dir = {
     savedAt:
@@ -3645,13 +4495,16 @@ function renderScrapbook() {
 
   scrapView.selected =
     new Set(
-      [...scrapView.selected]
+      [
+        ...scrapView.selected
+      ]
         .filter(
           id =>
-            state.scraps.some(
-              sc =>
-                sc.id === id
-            )
+            state.scraps
+              .some(
+                sc =>
+                  sc.id === id
+              )
         )
     );
 
@@ -3663,10 +4516,14 @@ function renderScrapbook() {
 
   state.scraps
     .forEach(
-      sc =>
+      sc => {
         counts[sc.folder] =
-          (counts[sc.folder] || 0) +
-          1
+          (
+            counts[sc.folder] ||
+            0
+          ) +
+          1;
+      }
     );
 
   c.innerHTML = `
@@ -3698,12 +4555,7 @@ function renderScrapbook() {
             style="margin:0"
           >
             ${state.scraps.length}개 저장
-            ·
-            ${
-              user
-                ? '☁ 클라우드 동기화 중'
-                : '⚠ 로그인하면 클라우드에 저장돼요'
-            }
+            · ☁ 클라우드 동기화
           </span>
 
           <button
@@ -3738,13 +4590,15 @@ function renderScrapbook() {
 
         <button
           class="chip folder-chip ${
-            scrapView.folder === '전체'
+            scrapView.folder ===
+              '전체'
               ? 'chip-on'
               : ''
           }"
           data-fchip="전체"
         >
-          전체 ${state.scraps.length}
+          전체
+          ${state.scraps.length}
         </button>
 
         ${
@@ -3753,7 +4607,8 @@ function renderScrapbook() {
               f => `
                 <button
                   class="chip folder-chip ${
-                    scrapView.folder === f
+                    scrapView.folder ===
+                      f
                       ? 'chip-on'
                       : ''
                   }"
@@ -3786,6 +4641,7 @@ function renderScrapbook() {
               id="svScope"
               style="width:96px"
             >
+
               ${
                 [
                   ['all','전체'],
@@ -3798,8 +4654,8 @@ function renderScrapbook() {
                   ['school','학교명']
                 ]
                   .map(
-                    ([v,l]) =>
-                      `<option
+                    ([v,l]) => `
+                      <option
                         value="${v}"
                         ${
                           scrapView.scope === v
@@ -3808,17 +4664,22 @@ function renderScrapbook() {
                         }
                       >
                         ${l}
-                      </option>`
+                      </option>
+                    `
                   )
                   .join('')
               }
+
             </select>
 
             <input
               id="svQ"
               placeholder="메뉴·제목·메모 검색"
               value="${esc(scrapView.q)}"
-              style="flex:1;min-width:0"
+              style="
+                flex:1;
+                min-width:0
+              "
             >
 
           </div>
@@ -3840,6 +4701,7 @@ function renderScrapbook() {
               id="svType"
               style="flex:1"
             >
+
               <option
                 value="all"
                 ${
@@ -3890,6 +4752,7 @@ function renderScrapbook() {
               id="svStars"
               style="flex:1"
             >
+
               ${
                 [0,1,2,3,4,5]
                   .map(
@@ -3904,7 +4767,8 @@ function renderScrapbook() {
                       >
                         ${
                           n
-                            ? '★'.repeat(n) + ' 이상'
+                            ? '★'.repeat(n) +
+                              ' 이상'
                             : '별점 전체'
                         }
                       </option>
@@ -3912,6 +4776,7 @@ function renderScrapbook() {
                   )
                   .join('')
               }
+
             </select>
 
           </div>
@@ -3933,14 +4798,20 @@ function renderScrapbook() {
               id="svFrom"
               type="date"
               value="${scrapView.from}"
-              style="flex:1;min-width:0"
+              style="
+                flex:1;
+                min-width:0
+              "
             >
 
             <input
               id="svTo"
               type="date"
               value="${scrapView.to}"
-              style="flex:1;min-width:0"
+              style="
+                flex:1;
+                min-width:0
+              "
             >
 
           </div>
@@ -3969,6 +4840,7 @@ function renderScrapbook() {
           </label>
 
           <select id="svSort">
+
             ${
               [
                 ['savedAt','저장일순'],
@@ -3977,8 +4849,8 @@ function renderScrapbook() {
                 ['title','제목순']
               ]
                 .map(
-                  ([v,l]) =>
-                    `<option
+                  ([v,l]) => `
+                    <option
                       value="${v}"
                       ${
                         scrapView.sort === v
@@ -3987,10 +4859,12 @@ function renderScrapbook() {
                       }
                     >
                       ${l}
-                    </option>`
+                    </option>
+                  `
                 )
                 .join('')
             }
+
           </select>
 
         </div>
@@ -4024,9 +4898,8 @@ function renderScrapbook() {
               list.length &&
               list.every(
                 sc =>
-                  scrapView.selected.has(
-                    sc.id
-                  )
+                  scrapView.selected
+                    .has(sc.id)
               )
                 ? 'checked'
                 : ''
@@ -4082,7 +4955,11 @@ function renderScrapbook() {
             id="csvExport"
           >
             CSV 내보내기
-            (${scrapView.selected.size ? '선택' : '현재 목록'})
+            (${
+              scrapView.selected.size
+                ? '선택'
+                : '현재 목록'
+            })
           </button>
 
           <button
@@ -4090,7 +4967,11 @@ function renderScrapbook() {
             id="printScraps"
           >
             🖨 인쇄·PDF
-            (${scrapView.selected.size ? '선택' : '현재 목록'})
+            (${
+              scrapView.selected.size
+                ? '선택'
+                : '현재 목록'
+            })
           </button>
 
         </div>
@@ -4177,12 +5058,10 @@ function renderScrapList(list) {
   if (
     orphan.length
   ) {
-    groups.push(
-      [
-        '기타',
-        orphan
-      ]
-    );
+    groups.push([
+      '기타',
+      orphan
+    ]);
   }
 
   return groups
@@ -4210,26 +5089,19 @@ function renderScrapList(list) {
 }
 
 function scrapTypeLabel(type) {
-  if (
-    type === 'report'
-  ) {
-    return '📊 리포트';
-  }
-
-  if (
-    type === 'meal'
-  ) {
-    return '🍱 전체 식단';
-  }
-
-  return '💡 아이디어';
+  return type === 'report'
+    ? '📊 리포트'
+    : type === 'meal'
+      ? '🍱 전체 식단'
+      : '💡 아이디어';
 }
 
 function scrapCard(sc) {
   const sel =
-    scrapView.selected.has(
-      sc.id
-    );
+    scrapView.selected
+      .has(
+        sc.id
+      );
 
   const catRow =
     (label, arr) =>
@@ -4237,6 +5109,7 @@ function scrapCard(sc) {
       arr.length
         ? `
           <div class="scrap-cat">
+
             <span>
               ${label}
             </span>
@@ -4244,6 +5117,7 @@ function scrapCard(sc) {
             <b>
               ${esc(arr.join(', '))}
             </b>
+
           </div>
         `
         : '';
@@ -4292,7 +5166,11 @@ function scrapCard(sc) {
           <span
             class="type-badge ${badgeClass}"
           >
-            ${scrapTypeLabel(sc.type)}
+            ${
+              scrapTypeLabel(
+                sc.type
+              )
+            }
           </span>
 
         </label>
@@ -4317,6 +5195,7 @@ function scrapCard(sc) {
       </b>
 
       <div class="school">
+
         ${esc(sc.school || '')}
 
         ${
@@ -4332,17 +5211,18 @@ function scrapCard(sc) {
               esc(sc.calories)
             : ''
         }
+
       </div>
 
       ${
         sc.type === 'meal'
           ? `
-            ${catRow('밥',sc.rice)}
-            ${catRow('국·찌개',sc.soup)}
-            ${catRow('주찬',sc.main)}
-            ${catRow('부찬',sc.side)}
-            ${catRow('김치',sc.kimchi)}
-            ${catRow('후식',sc.dessert)}
+            ${catRow('밥', sc.rice)}
+            ${catRow('국·찌개', sc.soup)}
+            ${catRow('주찬', sc.main)}
+            ${catRow('부찬', sc.side)}
+            ${catRow('김치', sc.kimchi)}
+            ${catRow('후식', sc.dessert)}
           `
           : `
             ${
@@ -4365,6 +5245,7 @@ function scrapCard(sc) {
                     class="help"
                     style="margin-top:6px"
                   >
+
                     ${
                       sc.snapshot.count
                         ? esc(
@@ -4397,15 +5278,6 @@ function scrapCard(sc) {
                         : ''
                     }
 
-                    ${
-                      sc.snapshot.asOf
-                        ? '· ' +
-                          esc(
-                            sc.snapshot.asOf
-                          ) +
-                          ' 기준'
-                        : ''
-                    }
                   </div>
                 `
                 : ''
@@ -4421,6 +5293,7 @@ function scrapCard(sc) {
               class="stars"
               data-scrap-stars="${sc.id}"
             >
+
               ${
                 [1,2,3,4,5]
                   .map(
@@ -4439,6 +5312,7 @@ function scrapCard(sc) {
                   )
                   .join('')
               }
+
             </div>
           `
       }
@@ -4507,13 +5381,15 @@ function scrapCard(sc) {
 function bindScrapbook(list) {
   $$('[data-fchip]')
     .forEach(
-      b =>
-        b.onclick = () => {
-          scrapView.folder =
-            b.dataset.fchip;
+      b => {
+        b.onclick =
+          () => {
+            scrapView.folder =
+              b.dataset.fchip;
 
-          renderScrapbook();
-        }
+            renderScrapbook();
+          };
+      }
     );
 
   const upd =
@@ -4568,7 +5444,9 @@ function bindScrapbook(list) {
           $('#svTo').value
         );
 
-      if (err) {
+      if (
+        err
+      ) {
         alert(err);
 
         e.target.value =
@@ -4591,7 +5469,9 @@ function bindScrapbook(list) {
           e.target.value
         );
 
-      if (err) {
+      if (
+        err
+      ) {
         alert(err);
 
         e.target.value =
@@ -4621,17 +5501,19 @@ function bindScrapbook(list) {
       ) {
         list.forEach(
           sc =>
-            scrapView.selected.add(
-              sc.id
-            )
+            scrapView.selected
+              .add(
+                sc.id
+              )
         );
 
       } else {
         list.forEach(
           sc =>
-            scrapView.selected.delete(
-              sc.id
-            )
+            scrapView.selected
+              .delete(
+                sc.id
+              )
         );
       }
 
@@ -4640,140 +5522,163 @@ function bindScrapbook(list) {
 
   $$('[data-sel]')
     .forEach(
-      cb =>
-        cb.onchange = () => {
-          cb.checked
-            ? scrapView.selected.add(
-                cb.dataset.sel
-              )
-            : scrapView.selected.delete(
-                cb.dataset.sel
-              );
+      cb => {
+        cb.onchange =
+          () => {
+            cb.checked
+              ? scrapView.selected
+                  .add(
+                    cb.dataset.sel
+                  )
+              : scrapView.selected
+                  .delete(
+                    cb.dataset.sel
+                  );
 
-          renderScrapbook();
-        }
+            renderScrapbook();
+          };
+      }
     );
 
   $$('[data-scrap-stars]')
-    .forEach(box => {
-      const id =
-        box.dataset.scrapStars;
+    .forEach(
+      box => {
+        const id =
+          box.dataset.scrapStars;
 
-      box
-        .querySelectorAll(
-          '.star'
-        )
-        .forEach(
-          st =>
-            st.onclick = () => {
-              const sc =
-                state.scraps.find(
-                  x =>
-                    x.id === id
+        box
+          .querySelectorAll(
+            '.star'
+          )
+          .forEach(
+            st => {
+              st.onclick =
+                () => {
+                  const sc =
+                    state.scraps
+                      .find(
+                        x =>
+                          x.id === id
+                      );
+
+                  if (
+                    !sc
+                  ) {
+                    return;
+                  }
+
+                  const n =
+                    +st.dataset.star;
+
+                  sc.stars =
+                    sc.stars === n
+                      ? 0
+                      : n;
+
+                  persist();
+
+                  renderScrapbook();
+                };
+            }
+          );
+      }
+    );
+
+  $$('[data-del-scrap]')
+    .forEach(
+      b => {
+        b.onclick =
+          () => {
+            if (
+              !confirm(
+                '이 스크랩을 삭제할까요?'
+              )
+            ) {
+              return;
+            }
+
+            state.scraps =
+              state.scraps
+                .filter(
+                  sc =>
+                    sc.id !==
+                    b.dataset.delScrap
                 );
 
-              if (!sc) {
-                return;
-              }
+            persist();
 
-              const n =
-                +st.dataset.star;
+            renderScrapbook();
+          };
+      }
+    );
 
-              sc.stars =
-                sc.stars === n
-                  ? 0
-                  : n;
+  $$('[data-edit-memo]')
+    .forEach(
+      b => {
+        b.onclick =
+          () => {
+            const sc =
+              state.scraps
+                .find(
+                  x =>
+                    x.id ===
+                    b.dataset.editMemo
+                );
+
+            const memo =
+              prompt(
+                '메모 수정',
+                sc?.memo ||
+                ''
+              );
+
+            if (
+              memo !== null &&
+              sc
+            ) {
+              sc.memo =
+                memo.trim();
 
               persist();
 
               renderScrapbook();
             }
-        );
-    });
-
-  $$('[data-del-scrap]')
-    .forEach(
-      b =>
-        b.onclick = () => {
-          if (
-            !confirm(
-              '이 스크랩을 삭제할까요?'
-            )
-          ) {
-            return;
-          }
-
-          state.scraps =
-            state.scraps.filter(
-              sc =>
-                sc.id !==
-                b.dataset.delScrap
-            );
-
-          persist();
-
-          renderScrapbook();
-        }
-    );
-
-  $$('[data-edit-memo]')
-    .forEach(
-      b =>
-        b.onclick = () => {
-          const sc =
-            state.scraps.find(
-              x =>
-                x.id ===
-                b.dataset.editMemo
-            );
-
-          const memo =
-            prompt(
-              '메모 수정',
-              sc?.memo ||
-              ''
-            );
-
-          if (
-            memo !== null &&
-            sc
-          ) {
-            sc.memo =
-              memo.trim();
-
-            persist();
-
-            renderScrapbook();
-          }
-        }
+          };
+      }
     );
 
   $$('[data-move-scrap]')
     .forEach(
-      b =>
-        b.onclick = () =>
-          moveScraps(
-            [
+      b => {
+        b.onclick =
+          () =>
+            moveScraps([
               b.dataset.moveScrap
-            ]
-          )
+            ]);
+      }
     );
 
   const selBtn =
     $('#selMove');
 
-  if (selBtn) {
+  if (
+    selBtn
+  ) {
     selBtn.onclick =
       () =>
         moveScraps(
-          [...scrapView.selected]
+          [
+            ...scrapView.selected
+          ]
         );
   }
 
   const selDel =
     $('#selDel');
 
-  if (selDel) {
+  if (
+    selDel
+  ) {
     selDel.onclick =
       () => {
         if (
@@ -4785,12 +5690,12 @@ function bindScrapbook(list) {
         }
 
         state.scraps =
-          state.scraps.filter(
-            sc =>
-              !scrapView.selected.has(
-                sc.id
-              )
-          );
+          state.scraps
+            .filter(
+              sc =>
+                !scrapView.selected
+                  .has(sc.id)
+            );
 
         scrapView.selected.clear();
 
@@ -4807,12 +5712,12 @@ function bindScrapbook(list) {
     () =>
       exportCSV(
         scrapView.selected.size
-          ? state.scraps.filter(
-              sc =>
-                scrapView.selected.has(
-                  sc.id
-                )
-            )
+          ? state.scraps
+              .filter(
+                sc =>
+                  scrapView.selected
+                    .has(sc.id)
+              )
           : list
       );
 
@@ -4820,12 +5725,12 @@ function bindScrapbook(list) {
     () =>
       printScraps(
         scrapView.selected.size
-          ? state.scraps.filter(
-              sc =>
-                scrapView.selected.has(
-                  sc.id
-                )
-            )
+          ? state.scraps
+              .filter(
+                sc =>
+                  scrapView.selected
+                    .has(sc.id)
+              )
           : list
       );
 
@@ -4855,12 +5760,17 @@ function moveScraps(ids) {
   const counts =
     {};
 
-  state.scraps.forEach(
-    sc =>
-      counts[sc.folder] =
-        (counts[sc.folder] || 0) +
-        1
-  );
+  state.scraps
+    .forEach(
+      sc => {
+        counts[sc.folder] =
+          (
+            counts[sc.folder] ||
+            0
+          ) +
+          1;
+      }
+    );
 
   m.innerHTML = `
     <div class="modal">
@@ -4879,6 +5789,7 @@ function moveScraps(ids) {
           class="school-results"
           style="max-height:320px"
         >
+
           ${
             state.folders
               .map(
@@ -4887,6 +5798,7 @@ function moveScraps(ids) {
                     class="school-item"
                     data-move-to="${esc(f)}"
                   >
+
                     <b>
                       📁 ${esc(f)}
                     </b>
@@ -4900,6 +5812,7 @@ function moveScraps(ids) {
               )
               .join('')
           }
+
         </div>
 
         <div
@@ -4909,15 +5822,18 @@ function moveScraps(ids) {
             margin-top:14px
           "
         >
+
           <button
             class="btn ghost"
             id="closeModal"
           >
             취소
           </button>
+
         </div>
 
       </div>
+
     </div>
   `;
 
@@ -4927,38 +5843,42 @@ function moveScraps(ids) {
 
   $$('[data-move-to]')
     .forEach(
-      b =>
-        b.onclick = () => {
-          const f =
-            b.dataset.moveTo;
+      b => {
+        b.onclick =
+          () => {
+            const f =
+              b.dataset.moveTo;
 
-          state.scraps
-            .forEach(
-              sc => {
-                if (
-                  ids.includes(
-                    sc.id
-                  )
-                ) {
-                  sc.folder =
-                    f;
+            state.scraps
+              .forEach(
+                sc => {
+                  if (
+                    ids.includes(
+                      sc.id
+                    )
+                  ) {
+                    sc.folder =
+                      f;
+                  }
                 }
-              }
-            );
+              );
 
-          scrapView.selected.clear();
+            scrapView.selected.clear();
 
-          persist();
+            persist();
 
-          m.innerHTML =
-            '';
+            m.innerHTML =
+              '';
 
-          renderScrapbook();
-        }
+            renderScrapbook();
+          };
+      }
     );
 }
 
-/* ══ 폴더 관리 ══ */
+/* ═════════════════════════════
+   폴더 관리
+═════════════════════════════ */
 function openFolderModal() {
   const m =
     $('#modal');
@@ -4968,10 +5888,14 @@ function openFolderModal() {
 
   state.scraps
     .forEach(
-      sc =>
+      sc => {
         counts[sc.folder] =
-          (counts[sc.folder] || 0) +
-          1
+          (
+            counts[sc.folder] ||
+            0
+          ) +
+          1;
+      }
     );
 
   m.innerHTML = `
@@ -4984,9 +5908,12 @@ function openFolderModal() {
         </h2>
 
         <p class="help">
-          순서 변경(↑↓), 이름 변경(✏), 삭제(🗑)가 가능해요.
-          <b>${esc(state.baseFolder)}</b>는 삭제된 폴더의
-          스크랩을 받는 기본 폴더라 삭제할 수 없어요
+          순서 변경(↑↓),
+          이름 변경(✏),
+          삭제(🗑)가 가능해요.
+          <b>${esc(state.baseFolder)}</b>는
+          삭제된 폴더의 스크랩을 받는 기본 폴더라
+          삭제할 수 없어요
           (이름 변경은 가능).
         </p>
 
@@ -5034,7 +5961,9 @@ function openFolderModal() {
                       class="btn ghost small"
                       data-fdown="${i}"
                       ${
-                        i === state.folders.length - 1
+                        i ===
+                        state.folders.length -
+                        1
                           ? 'disabled'
                           : ''
                       }
@@ -5103,6 +6032,7 @@ function openFolderModal() {
         </div>
 
       </div>
+
     </div>
   `;
 
@@ -5121,7 +6051,9 @@ function openFolderModal() {
           .value
           .trim();
 
-      if (!name) {
+      if (
+        !name
+      ) {
         return;
       }
 
@@ -5148,193 +6080,207 @@ function openFolderModal() {
 
   $$('[data-fup]')
     .forEach(
-      b =>
-        b.onclick = () => {
-          const i =
-            +b.dataset.fup;
+      b => {
+        b.onclick =
+          () => {
+            const i =
+              +b.dataset.fup;
 
-          [
-            state.folders[i - 1],
-            state.folders[i]
-          ] = [
-            state.folders[i],
-            state.folders[i - 1]
-          ];
+            [
+              state.folders[i - 1],
+              state.folders[i]
+            ] = [
+              state.folders[i],
+              state.folders[i - 1]
+            ];
 
-          persist();
+            persist();
 
-          openFolderModal();
-        }
+            openFolderModal();
+          };
+      }
     );
 
   $$('[data-fdown]')
     .forEach(
-      b =>
-        b.onclick = () => {
-          const i =
-            +b.dataset.fdown;
+      b => {
+        b.onclick =
+          () => {
+            const i =
+              +b.dataset.fdown;
 
-          [
-            state.folders[i + 1],
-            state.folders[i]
-          ] = [
-            state.folders[i],
-            state.folders[i + 1]
-          ];
+            [
+              state.folders[i + 1],
+              state.folders[i]
+            ] = [
+              state.folders[i],
+              state.folders[i + 1]
+            ];
 
-          persist();
+            persist();
 
-          openFolderModal();
-        }
+            openFolderModal();
+          };
+      }
     );
 
   $$('[data-fren]')
     .forEach(
-      b =>
-        b.onclick = () => {
-          const i =
-            +b.dataset.fren;
+      b => {
+        b.onclick =
+          () => {
+            const i =
+              +b.dataset.fren;
 
-          const old =
-            state.folders[i];
+            const old =
+              state.folders[i];
 
-          const name =
-            prompt(
-              '새 이름',
-              old
-            );
+            const name =
+              prompt(
+                '새 이름',
+                old
+              );
 
-          if (
-            !name ||
-            name.trim() === old
-          ) {
-            return;
-          }
+            if (
+              !name ||
+              name.trim() === old
+            ) {
+              return;
+            }
 
-          const nn =
-            name.trim();
+            const nn =
+              name.trim();
 
-          if (
-            state.folders.includes(
-              nn
-            )
-          ) {
-            alert(
-              '이미 있는 폴더예요.'
-            );
+            if (
+              state.folders.includes(
+                nn
+              )
+            ) {
+              alert(
+                '이미 있는 폴더예요.'
+              );
 
-            return;
-          }
+              return;
+            }
 
-          state.folders[i] =
-            nn;
-
-          state.scraps
-            .forEach(
-              sc => {
-                if (
-                  sc.folder === old
-                ) {
-                  sc.folder =
-                    nn;
-                }
-              }
-            );
-
-          if (
-            state.baseFolder === old
-          ) {
-            state.baseFolder =
+            state.folders[i] =
               nn;
-          }
 
-          persist();
+            state.scraps
+              .forEach(
+                sc => {
+                  if (
+                    sc.folder === old
+                  ) {
+                    sc.folder =
+                      nn;
+                  }
+                }
+              );
 
-          openFolderModal();
-        }
+            if (
+              state.baseFolder ===
+              old
+            ) {
+              state.baseFolder =
+                nn;
+            }
+
+            persist();
+
+            openFolderModal();
+          };
+      }
     );
 
   $$('[data-fdel]')
     .forEach(
-      b =>
-        b.onclick = () => {
-          const i =
-            +b.dataset.fdel;
+      b => {
+        b.onclick =
+          () => {
+            const i =
+              +b.dataset.fdel;
 
-          const f =
-            state.folders[i];
+            const f =
+              state.folders[i];
 
-          if (
-            f === state.baseFolder
-          ) {
-            return;
-          }
-
-          const inside =
-            state.scraps.filter(
-              sc =>
-                sc.folder === f
-            );
-
-          if (
-            inside.length
-          ) {
             if (
-              confirm(
-                `'${f}' 폴더에 스크랩 ${inside.length}개가 있어요.\n\n` +
-                `[확인] = 스크랩을 '${state.baseFolder}'(으)로 옮기고 폴더만 삭제\n` +
-                `[취소] = 다음 단계에서 함께 삭제 여부 선택`
-              )
+              f ===
+              state.baseFolder
             ) {
-              inside.forEach(
-                sc =>
-                  sc.folder =
-                    state.baseFolder
-              );
-
-            } else if (
-              confirm(
-                `정말 스크랩 ${inside.length}개를 폴더와 함께 삭제할까요? 되돌릴 수 없어요.`
-              )
-            ) {
-              state.scraps =
-                state.scraps.filter(
-                  sc =>
-                    sc.folder !== f
-                );
-
-            } else {
               return;
             }
 
-          } else if (
-            !confirm(
-              `'${f}' 폴더를 삭제할까요?`
-            )
-          ) {
-            return;
-          }
+            const inside =
+              state.scraps
+                .filter(
+                  sc =>
+                    sc.folder === f
+                );
 
-          state.folders.splice(
-            i,
-            1
-          );
+            if (
+              inside.length
+            ) {
+              if (
+                confirm(
+                  `'${f}' 폴더에 스크랩 ${inside.length}개가 있어요.\n\n` +
+                  `[확인] = 스크랩을 '${state.baseFolder}'(으)로 옮기고 폴더만 삭제\n` +
+                  `[취소] = 다음 단계에서 함께 삭제 여부 선택`
+                )
+              ) {
+                inside.forEach(
+                  sc =>
+                    sc.folder =
+                      state.baseFolder
+                );
 
-          if (
-            scrapView.folder === f
-          ) {
-            scrapView.folder =
-              '전체';
-          }
+              } else if (
+                confirm(
+                  `정말 스크랩 ${inside.length}개를 폴더와 함께 삭제할까요? 되돌릴 수 없어요.`
+                )
+              ) {
+                state.scraps =
+                  state.scraps
+                    .filter(
+                      sc =>
+                        sc.folder !== f
+                    );
 
-          persist();
+              } else {
+                return;
+              }
 
-          openFolderModal();
-        }
+            } else if (
+              !confirm(
+                `'${f}' 폴더를 삭제할까요?`
+              )
+            ) {
+              return;
+            }
+
+            state.folders.splice(
+              i,
+              1
+            );
+
+            if (
+              scrapView.folder === f
+            ) {
+              scrapView.folder =
+                '전체';
+            }
+
+            persist();
+
+            openFolderModal();
+          };
+      }
     );
 }
 
-/* ══ CSV ══ */
+/* ═════════════════════════════
+   CSV / 인쇄 / JSON
+═════════════════════════════ */
 function csvCell(v) {
   v =
     String(
@@ -5390,41 +6336,45 @@ function exportCSV(items) {
         .join(' / ');
 
   const rows =
-    items.map(
-      sc => [
-        sc.folder,
+    items
+      .map(
+        sc => [
+          sc.folder,
 
-        sc.type === 'report'
-          ? '리포트'
-          : sc.type === 'meal'
-            ? '전체 식단'
-            : '메뉴 아이디어',
+          sc.type === 'report'
+            ? '리포트'
+            : sc.type === 'meal'
+              ? '전체 식단'
+              : '메뉴 아이디어',
 
-        sc.title,
-        sc.school,
-        sc.servedDate,
+          sc.title,
+          sc.school,
+          sc.servedDate,
 
-        j(sc.rice),
-        j(sc.soup),
-        j(sc.main),
-        j(sc.side),
-        j(sc.kimchi),
-        j(sc.dessert),
+          j(sc.rice),
+          j(sc.soup),
+          j(sc.main),
+          j(sc.side),
+          j(sc.kimchi),
+          j(sc.dessert),
 
-        j(sc.menus),
+          j(sc.menus),
 
-        sc.calories,
-        sc.stars || '',
-        sc.memo,
-        sc.savedAt,
-        sc.sourceType,
-        sc.sourcePeriod
-      ]
-        .map(
-          csvCell
-        )
-        .join(',')
-    );
+          sc.calories,
+
+          sc.stars ||
+          '',
+
+          sc.memo,
+          sc.savedAt,
+          sc.sourceType,
+          sc.sourcePeriod
+        ]
+          .map(
+            csvCell
+          )
+          .join(',')
+      );
 
   const csv =
     '\uFEFF' +
@@ -5462,7 +6412,6 @@ function exportCSV(items) {
   );
 }
 
-/* ══ 인쇄 ══ */
 function printScraps(items) {
   if (
     !items.length
@@ -5477,7 +6426,9 @@ function printScraps(items) {
   let area =
     $('#printArea');
 
-  if (!area) {
+  if (
+    !area
+  ) {
     area =
       document.createElement(
         'div'
@@ -5486,28 +6437,30 @@ function printScraps(items) {
     area.id =
       'printArea';
 
-    document.body.appendChild(
-      area
-    );
+    document.body
+      .appendChild(
+        area
+      );
   }
 
   const byFolder =
     {};
 
-  items.forEach(
-    sc =>
-      (
-        byFolder[sc.folder] =
-          byFolder[sc.folder] ||
-          []
-      )
-        .push(sc)
-  );
-
   const j =
     a =>
       (a || [])
         .join(', ');
+
+  items
+    .forEach(
+      sc =>
+        (
+          byFolder[sc.folder] =
+            byFolder[sc.folder] ||
+            []
+        )
+          .push(sc)
+    );
 
   area.innerHTML = `
     <h1>
@@ -5526,8 +6479,7 @@ function printScraps(items) {
         byFolder
       )
         .map(
-          ([f, arr]) => `
-
+          ([f,arr]) => `
             <h2>
               📁 ${esc(f)}
               (${arr.length})
@@ -5585,6 +6537,7 @@ function printScraps(items) {
 
                         · 저장
                         ${esc(sc.savedAt)}
+
                         ·
                         ${esc(sc.sourceType || '')}
 
@@ -5608,17 +6561,20 @@ function printScraps(items) {
                               .map(
                                 k => `
                                   <div class="p-row">
+
                                     <span>
                                       ${CAT_LABEL[k]}
                                     </span>
 
                                     ${esc(j(sc[k]))}
+
                                   </div>
                                 `
                               )
                               .join('')
                           : `
                             <div class="p-row">
+
                               <span>
                                 ${
                                   sc.type === 'report'
@@ -5628,6 +6584,7 @@ function printScraps(items) {
                               </span>
 
                               ${esc(j(sc.menus))}
+
                             </div>
                           `
                       }
@@ -5656,7 +6613,6 @@ function printScraps(items) {
   window.print();
 }
 
-/* ══ JSON 백업 / 복원 ══ */
 function backupJSON() {
   const data = {
     app:
@@ -5717,6 +6673,7 @@ function openRestoreModal() {
 
   m.innerHTML = `
     <div class="modal">
+
       <div class="modal-card">
 
         <h2>
@@ -5776,6 +6733,7 @@ function openRestoreModal() {
         </div>
 
       </div>
+
     </div>
   `;
 
@@ -5791,7 +6749,9 @@ function openRestoreModal() {
             $('#restoreFile')
               .files[0];
 
-          if (!f) {
+          if (
+            !f
+          ) {
             return rej(
               new Error(
                 '파일을 먼저 선택해주세요.'
@@ -5837,7 +6797,7 @@ function openRestoreModal() {
       if (
         !d ||
         d.app !==
-        'meal-archive-scraps' ||
+          'meal-archive-scraps' ||
         !Array.isArray(
           d.scraps
         )
@@ -5862,7 +6822,8 @@ function openRestoreModal() {
           new Set(
             state.scraps
               .map(
-                sc => sc.id
+                sc =>
+                  sc.id
               )
           );
 
@@ -5904,6 +6865,7 @@ function openRestoreModal() {
           );
 
         migrateScraps();
+
         persist();
 
         m.innerHTML =
@@ -5959,6 +6921,7 @@ function openRestoreModal() {
         }
 
         migrateScraps();
+
         persist();
 
         m.innerHTML =
@@ -6005,15 +6968,17 @@ async function analyzeTrend() {
   const to =
     $('#tTo').value;
 
-  const rangeError =
+  const err =
     validateRange(
       from,
       to
     );
 
-  if (rangeError) {
+  if (
+    err
+  ) {
     setStatus(
-      rangeError,
+      err,
       true
     );
 
@@ -6048,10 +7013,10 @@ async function analyzeTrend() {
         r =>
           state.mine &&
           r.school.schoolCode ===
-          state.mine.schoolCode
+            state.mine.schoolCode
       )
       .forEach(
-        r =>
+        r => {
           parseDishes(
             r.dishes
           )
@@ -6062,7 +7027,8 @@ async function analyzeTrend() {
                     d.name
                   )
                 )
-            )
+            );
+        }
       );
 
     const cats = {
@@ -6076,7 +7042,7 @@ async function analyzeTrend() {
 
     rows
       .forEach(
-        r =>
+        r => {
           parseDishes(
             r.dishes
           )
@@ -6088,19 +7054,18 @@ async function analyzeTrend() {
                   );
 
                 if (
-                  !cats[cat]
+                  cats[cat]
                 ) {
-                  return;
+                  addCount(
+                    cats[cat],
+                    d,
+                    r.school,
+                    r.date
+                  );
                 }
-
-                addCount(
-                  cats[cat],
-                  d,
-                  r.school,
-                  r.date
-                );
               }
-            )
+            );
+        }
       );
 
     setStatus(
@@ -6111,6 +7076,7 @@ async function analyzeTrend() {
       <div class="section-title">
 
         <div>
+
           <h2>
             🔥 요즘 뜨는 메뉴
           </h2>
@@ -6129,6 +7095,7 @@ async function analyzeTrend() {
                 .join(', ')
             }
           </p>
+
         </div>
 
       </div>
@@ -6147,7 +7114,9 @@ async function analyzeTrend() {
             .map(
               cat => {
                 const items =
-                  [...cats[cat].values()]
+                  [
+                    ...cats[cat].values()
+                  ]
                     .sort(
                       (a, b) =>
                         b.count -
@@ -6161,10 +7130,13 @@ async function analyzeTrend() {
                     );
 
                 return `
-                  <div class="card rank-card trend-col">
+                  <div
+                    class="card rank-card trend-col"
+                  >
 
                     <h3>
-                      ${CAT_LABEL[cat]} TOP 30
+                      ${CAT_LABEL[cat]}
+                      TOP 30
                     </h3>
 
                     ${
@@ -6197,8 +7169,13 @@ async function analyzeTrend() {
                                         ),
 
                                       school:
-                                        [...x.schools]
-                                          .slice(0,3)
+                                        [
+                                          ...x.schools
+                                        ]
+                                          .slice(
+                                            0,
+                                            3
+                                          )
                                           .join(', '),
 
                                       sourceType:
@@ -6212,7 +7189,9 @@ async function analyzeTrend() {
                                           x.count,
 
                                         schools:
-                                          [...x.schools],
+                                          [
+                                            ...x.schools
+                                          ],
 
                                         from,
                                         to
@@ -6276,7 +7255,9 @@ async function analyzeTrend() {
         class="help"
         style="margin-top:10px"
       >
-        ✨NEW = 선택한 기간 동안 내 학교 식단에는 없었던 메뉴예요.
+        ✨NEW =
+        선택한 기간 동안
+        내 학교 식단에는 없었던 메뉴예요.
       </p>
     `;
 
@@ -6317,15 +7298,17 @@ async function analyzeReport() {
     )
       .trim();
 
-  const rangeError =
+  const err =
     validateRange(
       from,
       to
     );
 
-  if (rangeError) {
+  if (
+    err
+  ) {
     setStatus(
-      rangeError,
+      err,
       true
     );
 
@@ -6419,6 +7402,7 @@ async function analyzeReport() {
     from,
     to,
     keyword,
+
     today:
       dateISO(
         new Date()
@@ -6452,7 +7436,7 @@ function renderReport() {
     new Map();
 
   rows.forEach(
-    r =>
+    r => {
       parseDishes(
         r.dishes
       )
@@ -6463,7 +7447,9 @@ function renderReport() {
                 d.name
               );
 
-            if (!key) {
+            if (
+              !key
+            ) {
               return;
             }
 
@@ -6507,13 +7493,15 @@ function renderReport() {
               r.date
             );
           }
-        )
+        );
+    }
   );
 
   const all =
-    [...menuMap.values()];
+    [
+      ...menuMap.values()
+    ];
 
-  /* 3개월 넘게 안 쓴 메뉴 */
   const staleLine =
     (() => {
       const d =
@@ -6536,8 +7524,9 @@ function renderReport() {
       .filter(
         x =>
           x.latest <
-          staleLine &&
-          x.count >= 2
+            staleLine &&
+          x.count >=
+            2
       )
       .sort(
         (a, b) =>
@@ -6550,12 +7539,11 @@ function renderReport() {
         15
       );
 
-  /* 내 학교 선택 기간 메뉴 */
   const myPeriodSet =
     new Set();
 
   rows.forEach(
-    r =>
+    r => {
       parseDishes(
         r.dishes
       )
@@ -6566,10 +7554,10 @@ function renderReport() {
                 d.name
               )
             )
-        )
+        );
+    }
   );
 
-  /* 비교 학교 포함 기간 인기 */
   const allPeriod = [
     ...rows,
     ...compRows
@@ -6585,7 +7573,7 @@ function renderReport() {
   };
 
   allPeriod.forEach(
-    r =>
+    r => {
       parseDishes(
         r.dishes
       )
@@ -6597,19 +7585,18 @@ function renderReport() {
               );
 
             if (
-              !catsPeriod[cat]
+              catsPeriod[cat]
             ) {
-              return;
+              addCount(
+                catsPeriod[cat],
+                d,
+                r.school,
+                r.date
+              );
             }
-
-            addCount(
-              catsPeriod[cat],
-              d,
-              r.school,
-              r.date
-            );
           }
-        )
+        );
+    }
   );
 
   let refCount =
@@ -6619,8 +7606,10 @@ function renderReport() {
     catsPeriod
   )
     .forEach(
-      map =>
-        [...map.values()]
+      map => {
+        [
+          ...map.values()
+        ]
           .forEach(
             x => {
               if (
@@ -6634,14 +7623,16 @@ function renderReport() {
                 refCount++;
               }
             }
-          )
+          );
+      }
     );
 
-  /* 키워드 상세 분석 */
   let kwHTML =
     '';
 
-  if (keyword) {
+  if (
+    keyword
+  ) {
     const hitDays =
       rows
         .filter(
@@ -6716,19 +7707,18 @@ function renderReport() {
         )
       );
 
-    hitDays
-      .forEach(
-        r => {
-          const m =
-            `${r.date.slice(0,4)}-${r.date.slice(4,6)}`;
+    hitDays.forEach(
+      r => {
+        const m =
+          `${r.date.slice(0,4)}-${r.date.slice(4,6)}`;
 
-          if (
-            m in perMonth
-          ) {
-            perMonth[m]++;
-          }
+        if (
+          m in perMonth
+        ) {
+          perMonth[m]++;
         }
-      );
+      }
+    );
 
     const maxM =
       Math.max(
@@ -6742,14 +7732,18 @@ function renderReport() {
       <div class="section-title">
 
         <div>
+
           <h2>
-            🔍 '${esc(keyword)}' 상세 분석
+            🔍 '${esc(keyword)}'
+            상세 분석
           </h2>
 
           <p>
             ${from} ~ ${to}
-            · 총 ${hitDays.length}회 편성
+            · 총
+            ${hitDays.length}회 편성
           </p>
+
         </div>
 
       </div>
@@ -6887,7 +7881,7 @@ function renderReport() {
                       )
                   ]
                     .sort(
-                      (a, b) =>
+                      (a,b) =>
                         b.count -
                         a.count
                     )
@@ -6896,7 +7890,7 @@ function renderReport() {
                       12
                     )
                     .map(
-                      (x, i) => `
+                      (x,i) => `
                         <div class="rank">
 
                           <span class="num">
@@ -6934,18 +7928,21 @@ function renderReport() {
           `
           : `
             <div class="empty">
-              이 기간에 '${esc(keyword)}'를 편성한 날이 없습니다.
+              이 기간에
+              '${esc(keyword)}'를
+              편성한 날이 없습니다.
             </div>
           `
       }
     `;
   }
 
-  /* 학교명 접기 */
   const schoolsHTML =
     (set, idx) => {
       const arr =
-        [...set];
+        [
+          ...set
+        ];
 
       if (
         arr.length <= 3
@@ -6960,6 +7957,7 @@ function renderReport() {
           class="sch-short"
           data-sch="${idx}"
         >
+
           ${esc(arr.slice(0,3).join(', '))}
 
           <button
@@ -6968,6 +7966,7 @@ function renderReport() {
           >
             외 ${arr.length - 3}개교
           </button>
+
         </span>
 
         <span
@@ -6982,7 +7981,6 @@ function renderReport() {
   let schIdx =
     0;
 
-  /* ══ TOP30 : 핀 + 메모 ══ */
   const catCols =
     [
       'rice',
@@ -6995,9 +7993,11 @@ function renderReport() {
       .map(
         cat => {
           const items =
-            [...cats[cat].values()]
+            [
+              ...cats[cat].values()
+            ]
               .sort(
-                (a, b) =>
+                (a,b) =>
                   b.count -
                   a.count
               )
@@ -7007,17 +8007,20 @@ function renderReport() {
               );
 
           return `
-            <div class="card rank-card trend-col">
+            <div
+              class="card rank-card trend-col"
+            >
 
               <h3>
-                ${CAT_LABEL[cat]} TOP 30
+                ${CAT_LABEL[cat]}
+                TOP 30
               </h3>
 
               ${
                 items.length
                   ? items
                       .map(
-                        (x, i) => {
+                        (x,i) => {
                           const key =
                             normalize(
                               x.name
@@ -7041,6 +8044,7 @@ function renderReport() {
                               <div>
 
                                 <b>
+
                                   ${esc(x.name)}
 
                                   ${
@@ -7048,6 +8052,7 @@ function renderReport() {
                                       ? '<span class="mine-tag">📌 핀</span>'
                                       : ''
                                   }
+
                                 </b>
 
                                 <small>
@@ -7110,7 +8115,6 @@ function renderReport() {
       )
       .join('');
 
-  /* ══ 비교 인기 : 핀 + 스크랩 ══ */
   const popCols =
     [
       'rice',
@@ -7123,9 +8127,11 @@ function renderReport() {
       .map(
         cat => {
           const items =
-            [...catsPeriod[cat].values()]
+            [
+              ...catsPeriod[cat].values()
+            ]
               .sort(
-                (a, b) =>
+                (a,b) =>
                   b.count -
                   a.count ||
                   b.schools.size -
@@ -7137,7 +8143,9 @@ function renderReport() {
               );
 
           return `
-            <div class="card rank-card trend-col">
+            <div
+              class="card rank-card trend-col"
+            >
 
               <h3>
                 ${CAT_LABEL[cat]}
@@ -7147,7 +8155,7 @@ function renderReport() {
                 items.length
                   ? items
                       .map(
-                        (x, i) => {
+                        (x,i) => {
                           const isNew =
                             !myPeriodSet.has(
                               normalize(
@@ -7182,8 +8190,13 @@ function renderReport() {
                                   today,
 
                                 school:
-                                  [...x.schools]
-                                    .slice(0,3)
+                                  [
+                                    ...x.schools
+                                  ]
+                                    .slice(
+                                      0,
+                                      3
+                                    )
                                     .join(', '),
 
                                 sourceType:
@@ -7197,7 +8210,9 @@ function renderReport() {
                                     x.count,
 
                                   schools:
-                                    [...x.schools],
+                                    [
+                                      ...x.schools
+                                    ],
 
                                   from,
                                   to
@@ -7234,8 +8249,10 @@ function renderReport() {
 
                                 <small>
                                   ${x.count}회
-                                  · ${x.schools.size}개교
-                                  · ${s}
+                                  ·
+                                  ${x.schools.size}개교
+                                  ·
+                                  ${s}
                                 </small>
 
                               </div>
@@ -7282,13 +8299,14 @@ function renderReport() {
       .join('');
 
   $('#results').innerHTML = `
-
     <div class="section-title">
 
       <div>
 
         <h2>
-          📊 ${esc(state.mine.schoolName)} 식단 리포트
+          📊
+          ${esc(state.mine.schoolName)}
+          식단 리포트
         </h2>
 
         <p>
@@ -7300,13 +8318,6 @@ function renderReport() {
         </p>
 
       </div>
-
-      <button
-        class="btn"
-        id="saveReport"
-      >
-        📌 리포트 저장
-      </button>
 
     </div>
 
@@ -7356,7 +8367,8 @@ function renderReport() {
           <div class="warn">
             ⚠
             ${esc(failedSchools.join(', '))}
-            데이터를 불러오지 못해 해당 학교는 제외하고 분석했어요.
+            데이터를 불러오지 못해
+            해당 학교는 제외하고 분석했어요.
           </div>
         `
         : ''
@@ -7365,7 +8377,9 @@ function renderReport() {
     ${kwHTML}
 
     <div class="section-title">
+
       <div>
+
         <h2>
           분류별 자주 낸 메뉴
         </h2>
@@ -7374,7 +8388,9 @@ function renderReport() {
           ${from} ~ ${to}
           · 📍를 눌러 다음 식단에 쓸 메뉴를 핀해두세요.
         </p>
+
       </div>
+
     </div>
 
     <div class="trend-grid">
@@ -7388,8 +8404,10 @@ function renderReport() {
           <div class="section-title">
 
             <div>
+
               <h2>
-                🔥 선택 기간 인기 메뉴 (비교 참고)
+                🔥 선택 기간 인기 메뉴
+                (비교 참고)
               </h2>
 
               <p>
@@ -7422,14 +8440,17 @@ function renderReport() {
             class="warn"
             style="margin-top:14px"
           >
-            비교학교를 등록하면 다른 학교 인기 메뉴와
+            비교학교를 등록하면
+            다른 학교 인기 메뉴와
             ✨신메뉴 참고를 함께 볼 수 있어요.
           </div>
         `
     }
 
     <div class="section-title">
+
       <div>
+
         <h2>
           3개월 넘게 안 쓴 메뉴
         </h2>
@@ -7437,7 +8458,9 @@ function renderReport() {
         <p>
           종료일(${to}) 기준
         </p>
+
       </div>
+
     </div>
 
     <div class="card rank-card">
@@ -7446,7 +8469,7 @@ function renderReport() {
         stale.length
           ? stale
               .map(
-                (x, i) => `
+                (x,i) => `
                   <div class="rank">
 
                     <span class="num">
@@ -7482,6 +8505,7 @@ function renderReport() {
 
     </div>
 
+    <!-- 리포트 저장 버튼을 이 위치로 이동 -->
     <div class="section-title">
 
       <div>
@@ -7496,6 +8520,13 @@ function renderReport() {
 
       </div>
 
+      <button
+        class="btn"
+        id="saveReport"
+      >
+        📌 리포트 저장
+      </button>
+
     </div>
 
     <div class="analysis">
@@ -7509,7 +8540,9 @@ function renderReport() {
 
         ${
           state.favorites.size
-            ? [...state.favorites]
+            ? [
+                ...state.favorites
+              ]
                 .map(
                   name => `
                     <div class="rank">
@@ -7549,7 +8582,8 @@ function renderReport() {
               <div class="empty">
                 아직 핀한 메뉴가 없어요.
                 <br>
-                위 메뉴 옆의 📍 버튼을 누르면 여기에 바로 모여요.
+                위 메뉴 옆의 📍 버튼을 누르면
+                여기에 바로 모여요.
               </div>
             `
         }
@@ -7571,7 +8605,7 @@ function renderReport() {
                 state.menuMemos
               )
                 .map(
-                  ([k, memo]) => `
+                  ([k,memo]) => `
                     <div class="rank">
 
                       <span
@@ -7607,7 +8641,8 @@ function renderReport() {
               <div class="empty">
                 아직 메뉴 메모가 없어요.
                 <br>
-                위 TOP 30 메뉴 옆 📝를 눌러 남겨보세요.
+                위 TOP 30 메뉴 옆
+                📝를 눌러 남겨보세요.
               </div>
             `
         }
@@ -7625,7 +8660,8 @@ function renderReport() {
         </h2>
 
         <p>
-          자동 저장 · 리포트 저장 시 함께 보관됩니다.
+          자동 저장 ·
+          리포트 저장 시 함께 보관됩니다.
         </p>
 
       </div>
@@ -7665,6 +8701,7 @@ function renderReport() {
   );
 
   bindReportEvents();
+
   bindIdeaScraps();
 }
 
@@ -7672,19 +8709,23 @@ function bindReportEvents() {
   /* 핀 */
   $$('[data-pin-menu]')
     .forEach(
-      b =>
-        b.onclick = () => {
-          togglePinnedMenu(
-            b.dataset.pinMenu
-          );
-        }
+      b => {
+        b.onclick =
+          () => {
+            togglePinnedMenu(
+              b.dataset.pinMenu
+            );
+          };
+      }
     );
 
   /* 리포트 저장 */
   const saveBtn =
     $('#saveReport');
 
-  if (saveBtn) {
+  if (
+    saveBtn
+  ) {
     saveBtn.onclick =
       saveCurrentReportToScrapbook;
   }
@@ -7692,79 +8733,85 @@ function bindReportEvents() {
   /* 메뉴 메모 */
   $$('[data-menu-memo]')
     .forEach(
-      b =>
-        b.onclick = () => {
-          const key =
-            b.dataset.menuMemo;
+      b => {
+        b.onclick =
+          () => {
+            const key =
+              b.dataset.menuMemo;
 
-          const name =
-            b.dataset.menuName;
+            const name =
+              b.dataset.menuName;
 
-          const cur =
-            state.menuMemos[key] ||
-            '';
+            const cur =
+              state.menuMemos[key] ||
+              '';
 
-          const memo =
-            prompt(
-              `'${name}' 메뉴 메모`,
-              cur
-            );
+            const memo =
+              prompt(
+                `'${name}' 메뉴 메모`,
+                cur
+              );
 
-          if (
-            memo === null
-          ) {
-            return;
-          }
+            if (
+              memo === null
+            ) {
+              return;
+            }
 
-          if (
-            memo.trim()
-          ) {
-            state.menuMemos[key] =
-              memo.trim();
+            if (
+              memo.trim()
+            ) {
+              state.menuMemos[key] =
+                memo.trim();
 
-          } else {
-            delete state.menuMemos[key];
-          }
+            } else {
+              delete state.menuMemos[key];
+            }
 
-          persist();
+            persist();
 
-          renderReport();
-        }
+            renderReport();
+          };
+      }
     );
 
   /* 학교명 펼치기 */
   $$('[data-sch-btn]')
     .forEach(
-      b =>
-        b.onclick = () => {
-          const i =
-            b.dataset.schBtn;
+      b => {
+        b.onclick =
+          () => {
+            const i =
+              b.dataset.schBtn;
 
-          document
-            .querySelector(
-              `[data-sch="${i}"]`
-            )
-            ?.classList
-            .add(
-              'hidden'
-            );
+            document
+              .querySelector(
+                `[data-sch="${i}"]`
+              )
+              ?.classList
+              .add(
+                'hidden'
+              );
 
-          document
-            .querySelector(
-              `[data-sch-full="${i}"]`
-            )
-            ?.classList
-            .remove(
-              'hidden'
-            );
-        }
+            document
+              .querySelector(
+                `[data-sch-full="${i}"]`
+              )
+              ?.classList
+              .remove(
+                'hidden'
+              );
+          };
+      }
     );
 
-  /* 리포트 메모 자동저장 */
+  /* 분석 노트 자동저장 */
   const ta =
     $('#reportNote');
 
-  if (ta) {
+  if (
+    ta
+  ) {
     let t;
 
     ta.oninput =
@@ -7782,7 +8829,9 @@ function bindReportEvents() {
               const s =
                 $('#noteSaved');
 
-              if (s) {
+              if (
+                s
+              ) {
                 s.textContent =
                   '저장됨 ✓';
 
@@ -7799,7 +8848,9 @@ function bindReportEvents() {
   }
 }
 
-/* ══ 시작 ══ */
+/* ═════════════════════════════
+   시작
+═════════════════════════════ */
 onAuthStateChanged(
   auth,
   async u => {
@@ -7809,14 +8860,21 @@ onAuthStateChanged(
     user =
       u;
 
-    if (!u) {
-      migrateScraps();
+    /* 로그아웃 상태면
+       이전 사용자의 브라우저 개인자료 제거 */
+    if (
+      !u
+    ) {
+      clearPrivateBrowserData();
+
+      resetPrivateState();
+
       shell();
+
       return;
     }
 
-    migrateScraps();
-
+    /* 로그인하면 Firebase에서 개인자료 복원 */
     await initializeCloudForUser();
 
     migrateScraps();
