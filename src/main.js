@@ -183,7 +183,19 @@ const CAT_LABEL={rice:'밥',soup:'국·찌개',main:'주찬',side:'부찬',kimch
 const CAT_ORDER=['rice','soup','main','side','kimchi','dessert'];
 
 /* ══ 스크랩북 기본 폴더 (초기 세팅 — 이후 사용자가 자유롭게 수정) ══ */
-const DEFAULT_FOLDERS=['다음 달 식단 후보','계절 식단','특식·행사식','학생 반응 우수','자율선택급식','다른 학교 참고 식단','수다날 식단','다시 활용할 식단','보완이 필요한 식단','기본 폴더'];
+const DEFAULT_FOLDERS=[
+  '다음 달 식단 후보',
+  '계절 식단',
+  '특식·행사식',
+  '학생 반응 우수',
+  '자율선택급식',
+  '다른 학교 참고 식단',
+  '수다날 식단',
+  '다시 활용할 식단',
+  '보완이 필요한 식단',
+  '리포트 분석',
+  '기본 폴더'
+];
 function splitMenus(menus){
   const g={rice:[],soup:[],kimchi:[],main:[],side:[],dessert:[]};
   (menus||[]).forEach(m=>{const c=classify(m);(g[c]||g.side).push(m)});
