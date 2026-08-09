@@ -80,6 +80,117 @@ const state = {
 /* ═════════════════════════════
    클라우드 동기화
 ═════════════════════════════ */
+/* ═════════════════════════════
+   로그인 필수 안내 · 로컬 병합 헬퍼
+═════════════════════════════ */
+function requireLogin(actionName) {
+  if (user) {
+    return true;
+  }
+
+  alert(
+    actionName +
+    ' 기능은 구글 로그인 후 이용할 수 있어요.\n\n' +
+    '로그인하면 기록이 내 계정에 안전하게 저장되고,\n' +
+    '학교를 옮기거나 다른 컴퓨터에서도 그대로 유지됩니다.'
+  );
+
+  return false;
+}
+
+function readLocalPrivate() {
+  const g = (k, fb) => {
+    try {
+      return JSON.parse(
+        localStorage.getItem(k) ?? fb
+      );
+    } catch {
+      return JSON.parse(fb);
+    }
+  };
+
+  return {
+    scraps: g('archive_scraps', '[]'),
+    ratings: g('archive_ratings', '{}'),
+    favorites: g('archive_favorites', '[]'),
+    folders: g('archive_folders', '[]'),
+    menuMemos: g('archive_menu_memos', '{}'),
+    reportNote:
+      localStorage.getItem('archive_report_note') || '',
+    baseFolder:
+      localStorage.getItem('archive_base_folder') || '',
+    mine: g('archive_my_school', 'null'),
+    comparisons: g('archive_compare_schools', '[]')
+  };
+}
+
+function mergeCloudWithLocal(cloud, local) {
+  const c = cloud || {};
+  const l = local || {};
+
+  const merged = { ...c };
+
+  const cScraps =
+    Array.isArray(c.scraps) ? c.scraps : [];
+
+  const ids =
+    new Set(
+      cScraps.map(s => s && s.id)
+    );
+
+  const extra =
+    (Array.isArray(l.scraps) ? l.scraps : [])
+      .filter(
+        s => s && s.id && !ids.has(s.id)
+      );
+
+  merged.scraps = [...cScraps, ...extra];
+
+  merged.ratings = {
+    ...(l.ratings || {}),
+    ...(c.ratings || {})
+  };
+
+  merged.menuMemos = {
+    ...(l.menuMemos || {}),
+    ...(c.menuMemos || {})
+  };
+
+  merged.favorites = [
+    ...new Set([
+      ...(Array.isArray(c.favorites) ? c.favorites : []),
+      ...(Array.isArray(l.favorites) ? l.favorites : [])
+    ])
+  ];
+
+  const cf =
+    Array.isArray(c.folders) ? c.folders : [];
+
+  merged.folders = [
+    ...cf,
+    ...(Array.isArray(l.folders) ? l.folders : [])
+      .filter(f => !cf.includes(f))
+  ];
+
+  merged.reportNote =
+    (typeof c.reportNote === 'string' && c.reportNote)
+      ? c.reportNote
+      : (l.reportNote || '');
+
+  merged.baseFolder =
+    c.baseFolder || l.baseFolder || '기본 폴더';
+
+  merged.mine =
+    c.mine || l.mine || null;
+
+  merged.comparisons =
+    (Array.isArray(c.comparisons) && c.comparisons.length)
+      ? c.comparisons
+      : (Array.isArray(l.comparisons) ? l.comparisons : []);
+
+  return merged;
+}
+
 function persistLocal() {
   localStorage.setItem(
     'archive_my_school',
@@ -90,6 +201,13 @@ function persistLocal() {
     'archive_compare_schools',
     JSON.stringify(state.comparisons)
   );
+
+  /* 개인 기록(스크랩·별점·메모 등)은
+     로그인 중일 때만 이 브라우저에 저장 —
+     비로그인 상태에서 과거 기록을 덮어쓰지 않기 위함 */
+  if (!user) {
+    return;
+  }
 
   localStorage.setItem(
     'archive_favorites',
@@ -234,16 +352,51 @@ async function initializeCloudForUser() {
     const snap =
       await getDoc(ref);
 
+    /* 이 브라우저에 남아있던(로그인 전) 기록을
+       클라우드와 병합해 계정으로 흡수 */
+    const local =
+      readLocalPrivate();
+
+    const hasLocal =
+      (local.scraps || []).length ||
+      Object.keys(local.ratings || {}).length ||
+      Object.keys(local.menuMemos || {}).length ||
+      (local.favorites || []).length;
+
     if (snap.exists()) {
-      applyCloudData(
-        snap.data()
-      );
+      const merged =
+        mergeCloudWithLocal(
+          snap.data(),
+          local
+        );
+
+      if (hasLocal) {
+        await setDoc(
+          ref,
+          {
+            ...merged,
+            updatedAt:
+              new Date().toISOString()
+          },
+          {
+            merge: false
+          }
+        );
+      }
+
+      applyCloudData(merged);
 
     } else {
+      const merged =
+        mergeCloudWithLocal(
+          cloudPayload(),
+          local
+        );
+
       await setDoc(
         ref,
         {
-          ...cloudPayload(),
+          ...merged,
           migrationVersion: 1,
           migratedFromLocal: true,
           createdAt:
@@ -253,6 +406,8 @@ async function initializeCloudForUser() {
           merge: false
         }
       );
+
+      applyCloudData(merged);
     }
 
     cloudReady = true;
@@ -1248,6 +1403,12 @@ function isPinnedMenu(name) {
 }
 
 function togglePinnedMenu(name) {
+  if (
+    !requireLogin('메뉴 핀')
+  ) {
+    return;
+  }
+
   const key =
     normalize(name);
 
@@ -3745,6 +3906,12 @@ function bindMealCards() {
             st => {
               st.onclick =
                 () => {
+                  if (
+                    !requireLogin('별점')
+                  ) {
+                    return;
+                  }
+
                   const n =
                     +st.dataset.star;
 
@@ -3888,6 +4055,12 @@ function scrapAnalysis(
    스크랩 모달
 ═════════════════════════════ */
 function openScrapModal(item) {
+  if (
+    !requireLogin('스크랩 저장')
+  ) {
+    return;
+  }
+
   const m =
     $('#modal');
 
@@ -6812,6 +6985,12 @@ function openRestoreModal() {
 
   $('#restoreMerge').onclick =
     async () => {
+      if (
+        !requireLogin('JSON 복원')
+      ) {
+        return;
+      }
+
       try {
         const d =
           validate(
@@ -6887,6 +7066,12 @@ function openRestoreModal() {
 
   $('#restoreReplace').onclick =
     async () => {
+      if (
+        !requireLogin('JSON 복원')
+      ) {
+        return;
+      }
+
       try {
         const d =
           validate(
@@ -8736,6 +8921,12 @@ function bindReportEvents() {
       b => {
         b.onclick =
           () => {
+            if (
+              !requireLogin('메뉴 메모')
+            ) {
+              return;
+            }
+
             const key =
               b.dataset.menuMemo;
 
@@ -8860,13 +9051,13 @@ onAuthStateChanged(
     user =
       u;
 
-    /* 로그아웃 상태면
-       이전 사용자의 브라우저 개인자료 제거 */
+    /* 비로그인 상태: 화면의 개인 기록만 숨김.
+       브라우저 저장분은 지우지 않음 —
+       첫 로그인 때 계정으로 병합·구제하기 위해 보존.
+       (로그아웃 버튼을 직접 누르면 doSignOut에서 삭제) */
     if (
       !u
     ) {
-      clearPrivateBrowserData();
-
       resetPrivateState();
 
       shell();
