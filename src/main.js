@@ -2851,6 +2851,16 @@ async function searchSchools(type) {
           )
         : data;
 
+    if (
+      !filtered.length &&
+      q.includes('유치원')
+    ) {
+      st.innerHTML =
+        '🧒 유치원은 나이스 개방 API에서 제공되지 않아 검색·비교가 불가능해요. (초·중·고만 지원됩니다)';
+
+      return;
+    }
+
     st.textContent =
       `${filtered.length}개 학교를 찾았습니다.`;
 
