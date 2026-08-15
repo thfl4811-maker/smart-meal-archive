@@ -1,5 +1,6 @@
 import './style.css';
 import { initializeApp } from 'firebase/app';
+import * as XLSX from 'xlsx';
 import {
   getAuth,
   signInWithPopup,
@@ -42,6 +43,10 @@ const state = {
 
   comparisons: JSON.parse(
     localStorage.getItem('archive_compare_schools') || '[]'
+  ),
+
+  uploads: JSON.parse(
+    localStorage.getItem('archive_uploads') || '{}'
   ),
 
   tab: 'mine',
@@ -202,6 +207,11 @@ function persistLocal() {
     JSON.stringify(state.comparisons)
   );
 
+  localStorage.setItem(
+    'archive_uploads',
+    JSON.stringify(state.uploads || {})
+  );
+
   /* 개인 기록(스크랩·별점·메모 등)은
      로그인 중일 때만 이 브라우저에 저장 —
      비로그인 상태에서 과거 기록을 덮어쓰지 않기 위함 */
@@ -249,6 +259,7 @@ function cloudPayload() {
   return {
     mine: state.mine || null,
     comparisons: state.comparisons || [],
+    uploads: JSON.stringify(state.uploads || {}),
     favorites: [...state.favorites],
     scraps: state.scraps || [],
     ratings: state.ratings || {},
@@ -293,6 +304,15 @@ async function syncCloud() {
 function applyCloudData(d) {
   state.mine =
     d.mine || null;
+
+  try {
+    state.uploads =
+      typeof d.uploads === 'string'
+        ? JSON.parse(d.uploads || '{}')
+        : (d.uploads || {});
+  } catch {
+    state.uploads = {};
+  }
 
   state.comparisons =
     Array.isArray(d.comparisons)
@@ -1798,6 +1818,7 @@ function clearPrivateBrowserData() {
   [
     'archive_my_school',
     'archive_compare_schools',
+    'archive_uploads',
     'archive_favorites',
     'archive_scraps',
     'archive_ratings',
@@ -1821,6 +1842,9 @@ function resetPrivateState() {
 
   state.comparisons =
     [];
+
+  state.uploads =
+    {};
 
   state.favorites =
     new Set();
@@ -2696,6 +2720,146 @@ function schoolChip(
 /* ═════════════════════════════
    학교 검색
 ═════════════════════════════ */
+/* ── 나이스 월간식단표 엑셀 해석 (유치원 등 검색 불가 기관용) ── */
+function parseMonthlyExcelArchive(book) {
+  const ws = book.Sheets[book.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+  let year = '', mon = '', orgName = '';
+  for (const row of rows) {
+    for (const cell of row) {
+      const t = String(cell || '').trim();
+      const ym = t.match(/조회년월\s*:\s*(\d{4})년\s*(\d{1,2})월/);
+      if (ym) { year = ym[1]; mon = String(ym[2]).padStart(2, '0'); }
+      if (!orgName && /(학교|유치원)$/.test(t) && !/조회|월간|식단/.test(t)) orgName = t;
+    }
+  }
+  if (!year || !mon) throw new Error('조회 연월을 찾지 못했어요. 나이스 월간식단표 엑셀인지 확인해 주세요.');
+  const days = {};
+  for (let r = 0; r < rows.length - 1; r++) {
+    const dr = rows[r] || [], mr = rows[r + 1] || [];
+    const nd = [];
+    for (let c = 0; c < dr.length; c++) {
+      const v = String(dr[c] ?? '').trim().replace(/\.0$/, '');
+      if (/^\d{1,2}$/.test(v)) { const day = +v; if (day >= 1 && day <= 31) nd.push({ c, day }); }
+    }
+    if (!nd.length) continue;
+    const looks = mr.some(cell => { const t = String(cell || ''); return /\n/.test(t) || /중식/.test(t) || /에너지/.test(t); });
+    if (!looks) continue;
+    for (const { c, day } of nd) {
+      const raw = String(mr[c] || '').replace(/\r/g, '').trim();
+      if (!raw || raw === '0') continue;
+      const lines = raw.split('\n').map(x => x.trim()).filter(Boolean);
+      const ei = lines.findIndex(x => /^\*?\s*에너지/.test(x));
+      const menu = (ei >= 0 ? lines.slice(0, ei) : lines.slice()).filter(x => x !== '[식단]' && x !== '중식' && x !== '0');
+      if (!menu.length) continue;
+      days[`${year}${mon}${String(day).padStart(2, '0')}`] = menu.join('<br/>');
+    }
+  }
+  if (!Object.keys(days).length) throw new Error('날짜별 식단을 찾지 못했어요.');
+  return { orgName, year, mon, days };
+}
+
+/* ── 나이스 조리방법조회(레시피) 엑셀 해석 — 기간 지정 파일 한 개로 여러 날 등록 ── */
+function parseRecipeExcelArchive(book) {
+  const ws = book.Sheets[book.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+  let orgName = '';
+  const days = {};
+  let cur = '';
+  let curMealOk = true;
+  for (const row of rows) {
+    const joined = row.map(c => String(c || '')).join(' ');
+    if (!orgName) {
+      for (const cell of row) {
+        const t = String(cell || '').trim();
+        if (/(학교|유치원)$/.test(t) && !/조회|조리|급식일/.test(t)) { orgName = t; break; }
+      }
+    }
+    const dm = joined.match(/급식일\s*:\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/);
+    if (dm) {
+      cur = `${dm[1]}${String(dm[2]).padStart(2, '0')}${String(dm[3]).padStart(2, '0')}`;
+      curMealOk = true;
+      continue;
+    }
+    if (!cur) continue;
+    const c0 = String(row[0] || '').replace(/\s+/g, '');
+    if (c0) {
+      if (/조식|석식/.test(c0)) curMealOk = false;
+      else if (/중식|간식/.test(c0)) curMealOk = true;
+    }
+    if (!curMealOk) continue;
+    const name = String(row[1] || '').trim();
+    if (!name) continue;
+    if (/^구\s*분$/.test(name) || /요리방법|사용재료/.test(name)) continue;
+    days[cur] = days[cur] || [];
+    if (!days[cur].includes(name)) days[cur].push(name);
+  }
+  const out = {};
+  for (const d of Object.keys(days)) {
+    if (days[d].length) out[d] = days[d].join('<br/>');
+  }
+  if (!Object.keys(out).length) throw new Error('조리방법 파일에서 날짜별 메뉴를 찾지 못했어요.');
+  return { orgName, days: out };
+}
+
+/* 파일 형식 자동 구분: 조리방법조회(급식일 블록) vs 월간식단표(조회년월) */
+function parseAnyMealExcel(book) {
+  const ws = book.Sheets[book.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+  const text = rows.slice(0, 8).flat().map(c => String(c || '')).join(' ');
+  if (/조리방법|급식일\s*:/.test(text)) {
+    const r = parseRecipeExcelArchive(book);
+    return { orgName: r.orgName, days: r.days, kind: '조리방법조회' };
+  }
+  const m = parseMonthlyExcelArchive(book);
+  return { orgName: m.orgName, days: m.days, kind: `${Number(m.mon)}월 월간식단표` };
+}
+
+async function registerUploadInstitution(type) {
+  const nameInput = $('#uploadInstName');
+  const fileInput = $('#uploadExcelFiles');
+  const st = $('#uploadStatus');
+  const files = [...(fileInput.files || [])];
+  if (!files.length) return;
+  try {
+    let name = nameInput.value.trim();
+    let merged = null;
+    const months = [];
+    for (const f of files) {
+      const parsed = parseAnyMealExcel(XLSX.read(await f.arrayBuffer(), { type: 'array' }));
+      if (!name && parsed.orgName) name = parsed.orgName;
+      months.push(parsed.kind);
+      merged = merged || {};
+      Object.assign(merged, parsed.days);
+    }
+    if (!name) throw new Error('기관명을 입력해 주세요.');
+    state.uploads = state.uploads || {};
+    const prev = (state.uploads[name] && state.uploads[name].days) || {};
+    state.uploads[name] = { name, days: { ...prev, ...merged } };
+    const total = Object.keys(state.uploads[name].days).length;
+    const level =
+      /초등학교$/.test(name) ? '초등학교'
+      : /중학교$/.test(name) ? '중학교'
+      : /고등학교$/.test(name) ? '고등학교'
+      : '유치원';
+    const schoolObj = {
+      officeCode: 'UPLOAD',
+      schoolCode: 'UP-' + name,
+      schoolName: name,
+      level,
+      address: '엑셀 업로드 기관',
+      region: '업로드'
+    };
+    st.textContent = `✅ ${name}: 이번에 ${files.length}개 파일(${months.join(', ')})을 읽어 총 ${total}일치가 쌓였어요.`;
+    syncCloud();
+    selectSchool(schoolObj, type);
+  } catch (e) {
+    st.textContent = '업로드 실패: ' + e.message;
+  } finally {
+    fileInput.value = '';
+  }
+}
+
 function openSchoolModal(type) {
   const m =
     $('#modal');
@@ -2750,6 +2914,80 @@ function openSchoolModal(type) {
           class="school-results"
         ></div>
 
+        <div style="border-top:1px dashed #d9d9de;margin:16px 0 10px"></div>
+
+        <p style="font-weight:800;margin:0 0 4px">
+          🧒 유치원 등 검색이 안 되는 기관 — 엑셀로 등록
+        </p>
+
+        <p class="help" style="margin-top:0">
+          나이스에서 받은 <b>월간식단표</b> 또는 <b>조리방법조회(레시피)</b> 엑셀을 올리면
+          이 기관의 식단으로 분석·비교할 수 있어요. 파일 형식은 자동으로 구분됩니다.
+          <b>조리방법조회는 기간을 지정해 한 파일로 여러 날을 등록</b>할 수 있어 편하고,
+          월간식단표는 여러 달 파일을 한 번에 선택해 올리면 돼요.
+          (추가로 올리면 계속 쌓입니다. 비교기관은 같은 급 선생님께 파일을 받아 올리면 되고,
+          구글 로그인 중이면 계정에도 저장됩니다.)
+        </p>
+
+        <div class="searchrow">
+
+          <input
+            id="uploadInstName"
+            placeholder="기관명 (비우면 엑셀에서 자동 인식)"
+          >
+
+          <button
+            class="btn"
+            id="uploadExcelBtn"
+          >
+            📄 엑셀 업로드
+          </button>
+
+          <input
+            type="file"
+            id="uploadExcelFiles"
+            accept=".xlsx,.xls"
+            multiple
+            style="display:none"
+          >
+
+        </div>
+
+        <div
+          id="uploadStatus"
+          class="help"
+        ></div>
+
+        <details style="margin-top:10px;border:1px solid #e2e2e6;border-radius:10px;overflow:hidden;background:#fff">
+          <summary style="cursor:pointer;padding:10px 14px;font-weight:800;font-size:13.5px;color:#047857">
+            📖 유치원 선생님 이용 안내 (누르면 펼쳐져요)
+          </summary>
+          <div style="padding:4px 16px 14px;font-size:13px;line-height:1.8;color:#3f3f46">
+            <p style="margin:8px 0">
+              교육부의 공개 자료(나이스 개방포털)에 유치원 급식 정보가 포함되어 있지 않아,
+              유치원은 학교 이름 검색이 되지 않습니다. 이는 프로그램 오류가 아닌 교육부 정책에 따른 것입니다.
+              대신 아래 방법으로 초·중·고와 동일하게 분석·비교에 참여할 수 있습니다.
+            </p>
+            <p style="margin:8px 0;font-weight:800;color:#111113">이용 방법</p>
+            <p style="margin:6px 0">
+              ① 유치원 나이스(급식 메뉴)에서 <b>조리방법조회를 기간 지정으로 엑셀 저장</b>합니다.
+              한 파일로 그 기간 전체가 등록되니 가장 편해요. (월간식단표 엑셀도 사용 가능 — 여러 달 파일을 한 번에 선택)
+            </p>
+            <p style="margin:6px 0">
+              ② 위 칸에 기관명을 쓰고(비우면 자동 인식) <b>「📄 엑셀 업로드」</b>로 파일을 선택하면
+              형식이 자동 구분되어 등록됩니다. 추가로 올릴수록 데이터가 계속 쌓여요.
+            </p>
+            <p style="margin:6px 0">
+              ③ <b>비교기관</b>은 같은 급(유치원) 선생님께 파일을 받아, 비교학교 검색 창의 같은 업로드 칸에
+              그 기관명으로 올리면 됩니다. (최대 3곳)
+            </p>
+            <p style="margin:6px 0">
+              ④ 등록 후에는 기준 메뉴 검색, 주찬·부찬 빈도 분석 등 <b>모든 기능이 초·중·고와 동일</b>하게 작동하고,
+              구글 로그인 중이면 업로드한 식단이 계정에 저장되어 다른 기기에서도 그대로 불러와집니다.
+            </p>
+          </div>
+        </details>
+
         <div
           class="row"
           style="
@@ -2775,6 +3013,14 @@ function openSchoolModal(type) {
   $('#closeModal').onclick =
     () =>
       m.innerHTML = '';
+
+  $('#uploadExcelBtn').onclick =
+    () =>
+      $('#uploadExcelFiles').click();
+
+  $('#uploadExcelFiles').onchange =
+    () =>
+      registerUploadInstitution(type);
 
   $('#schoolSearch').onclick =
     () =>
@@ -2856,7 +3102,7 @@ async function searchSchools(type) {
       q.includes('유치원')
     ) {
       st.innerHTML =
-        '🧒 유치원은 나이스 개방 API에서 제공되지 않아 검색·비교가 불가능해요. (초·중·고만 지원됩니다)';
+        '🧒 유치원은 나이스 개방 API에서 제공되지 않아 검색이 안 돼요. 아래 <b>엑셀로 등록</b>을 이용하면 분석·비교에 똑같이 참여할 수 있어요.';
 
       return;
     }
@@ -3009,6 +3255,30 @@ async function fetchMeals(
   from,
   to
 ) {
+  /* 엑셀로 등록한 기관(유치원 등)은 업로드된 식단에서 조회 */
+  if (school.officeCode === 'UPLOAD') {
+    const store =
+      (state.uploads || {})[school.schoolName];
+    if (!store || !store.days) {
+      throw Error(
+        `${school.schoolName}: 업로드된 식단이 없습니다. 학교 검색 창에서 엑셀을 다시 올려주세요.`
+      );
+    }
+    const f = String(from).replaceAll('-', '');
+    const t = String(to).replaceAll('-', '');
+    return Object.keys(store.days)
+      .filter(d => d >= f && d <= t)
+      .sort()
+      .map(d => ({
+        date: d,
+        mealName: '중식',
+        dishes: store.days[d],
+        calories: '',
+        nutrients: '',
+        school
+      }));
+  }
+
   const url =
     `/api/meals-range?` +
     `office=${encodeURIComponent(school.officeCode)}` +
