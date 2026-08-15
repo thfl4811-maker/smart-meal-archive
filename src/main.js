@@ -689,7 +689,7 @@ function normalize(s = '') {
   const n =
     key
       .replace(/\([^)]*\)/g, '')
-      .replace(/\[[^\]]*\]/g, '')
+      .replace(/\[([^\]]*)\]/g, '$1')
       .replace(/[*#@♥▶►◆■※&]/g, '')
       .replace(
         /자율선택|자율메뉴|자율/g,
@@ -1374,7 +1374,8 @@ function menuMatches(
     normalize(keyword);
 
   if (
-    !k
+    !k ||
+    !n
   ) {
     return false;
   }
