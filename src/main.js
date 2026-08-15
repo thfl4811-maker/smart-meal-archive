@@ -55,6 +55,9 @@ const state = {
   lastNeisKey:
     localStorage.getItem('archive_last_neis_key') || null,
 
+  mealCode:
+    localStorage.getItem('archive_meal_code') || '2',
+
   tab: 'mine',
   similar: true,
   loaded: [],
@@ -2147,6 +2150,7 @@ function shell() {
 }
 
 function commonFields() {
+  const mc = state.mealCode || '2';
   const ur =
     state.mine && state.mine.officeCode === 'UPLOAD'
       ? uploadRange(state.mine.schoolName)
@@ -2188,6 +2192,17 @@ function commonFields() {
           value="미역국"
           placeholder="예: 미역국"
         >
+      </div>
+
+      <div class="field">
+        <label>
+          식사 구분
+        </label>
+        <select id="mealCode" title="조식·석식은 해당 급식을 운영하는 학교만 데이터가 있어요">
+          <option value="2" ${mc === '2' ? 'selected' : ''}>중식</option>
+          <option value="1" ${mc === '1' ? 'selected' : ''}>조식</option>
+          <option value="3" ${mc === '3' ? 'selected' : ''}>석식</option>
+        </select>
       </div>
 
       <div class="field">
@@ -2704,6 +2719,13 @@ function renderControls() {
 }
 
 function bindCommon() {
+  const mcEl = $('#mealCode');
+  if (mcEl) {
+    mcEl.onchange = () => {
+      state.mealCode = mcEl.value;
+      localStorage.setItem('archive_meal_code', state.mealCode);
+    };
+  }
   $('#similar').onclick =
     () => {
       state.similar =
@@ -3416,7 +3438,8 @@ async function fetchMeals(
     `office=${encodeURIComponent(school.officeCode)}` +
     `&school=${encodeURIComponent(school.schoolCode)}` +
     `&from=${from}` +
-    `&to=${to}`;
+    `&to=${to}` +
+    `&meal=${state.mealCode || '2'}`;
 
   const r =
     await fetch(url);
