@@ -9509,3 +9509,20 @@ onAuthStateChanged(
     shell();
   }
 );
+
+
+/* ── 급식소리함 프로필 내 학교 자동 연동 (포털이 학교정보의 기준) ── */
+function applySoriProfileMine(p){try{
+  if(!p||!p.schoolCode)return;
+  if(state.mine&&state.mine.officeCode==='UPLOAD')return; /* 유치원 업로드 기관은 유지 */
+  const key=`${p.officeCode}:${p.schoolCode}`;
+  if(state.mine&&schoolKey(state.mine)===key)return;
+  const lv=p.schoolLevel||(/초등학교/.test(p.school)?'초등학교':/중학교/.test(p.school)?'중학교':/고등학교/.test(p.school)?'고등학교':'');
+  state.mine={officeCode:p.officeCode,officeName:p.officeName||'',schoolCode:p.schoolCode,schoolName:p.school,level:lv,address:p.schoolAddress||'',region:''};
+  state.lastNeisKey=key;
+  state.comparisons=(state.comparisons||[]).filter(x=>x.level===lv&&schoolKey(x)!==key).slice(0,3);
+  persistLocal();
+  try{shell();}catch(_){}
+}catch(_){}}
+window.addEventListener('sori-ready',e=>applySoriProfileMine(e.detail&&e.detail.profile));
+if(window.SORI)applySoriProfileMine(window.SORI.profile);
