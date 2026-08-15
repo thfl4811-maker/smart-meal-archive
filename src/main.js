@@ -49,6 +49,12 @@ const state = {
     localStorage.getItem('archive_uploads') || '{}'
   ),
 
+  mineChangedAt:
+    localStorage.getItem('archive_mine_changed_at') || null,
+
+  lastNeisKey:
+    localStorage.getItem('archive_last_neis_key') || null,
+
   tab: 'mine',
   similar: true,
   loaded: [],
@@ -212,6 +218,13 @@ function persistLocal() {
     JSON.stringify(state.uploads || {})
   );
 
+  if (state.mineChangedAt) {
+    localStorage.setItem('archive_mine_changed_at', state.mineChangedAt);
+  }
+  if (state.lastNeisKey) {
+    localStorage.setItem('archive_last_neis_key', state.lastNeisKey);
+  }
+
   /* 개인 기록(스크랩·별점·메모 등)은
      로그인 중일 때만 이 브라우저에 저장 —
      비로그인 상태에서 과거 기록을 덮어쓰지 않기 위함 */
@@ -260,6 +273,8 @@ function cloudPayload() {
     mine: state.mine || null,
     comparisons: state.comparisons || [],
     uploads: JSON.stringify(state.uploads || {}),
+    mineChangedAt: state.mineChangedAt || null,
+    lastNeisKey: state.lastNeisKey || null,
     favorites: [...state.favorites],
     scraps: state.scraps || [],
     ratings: state.ratings || {},
@@ -313,6 +328,9 @@ function applyCloudData(d) {
   } catch {
     state.uploads = {};
   }
+
+  state.mineChangedAt = d.mineChangedAt || null;
+  state.lastNeisKey = d.lastNeisKey || null;
 
   state.comparisons =
     Array.isArray(d.comparisons)
@@ -1819,6 +1837,8 @@ function clearPrivateBrowserData() {
     'archive_my_school',
     'archive_compare_schools',
     'archive_uploads',
+    'archive_mine_changed_at',
+    'archive_last_neis_key',
     'archive_favorites',
     'archive_scraps',
     'archive_ratings',
@@ -1845,6 +1865,9 @@ function resetPrivateState() {
 
   state.uploads =
     {};
+
+  state.mineChangedAt = null;
+  state.lastNeisKey = null;
 
   state.favorites =
     new Set();
@@ -2124,6 +2147,10 @@ function shell() {
 }
 
 function commonFields() {
+  const ur =
+    state.mine && state.mine.officeCode === 'UPLOAD'
+      ? uploadRange(state.mine.schoolName)
+      : null;
   return `
     <div class="grid">
 
@@ -2135,7 +2162,7 @@ function commonFields() {
         <input
           id="from"
           type="date"
-          value="${threeYearsAgo()}"
+          value="${ur ? ur.from : threeYearsAgo()}"
         >
       </div>
 
@@ -2147,7 +2174,7 @@ function commonFields() {
         <input
           id="to"
           type="date"
-          value="${dateISO(new Date())}"
+          value="${ur ? ur.to : dateISO(new Date())}"
         >
       </div>
 
@@ -2816,6 +2843,70 @@ function parseAnyMealExcel(book) {
   return { orgName: m.orgName, days: m.days, kind: `${Number(m.mon)}월 월간식단표` };
 }
 
+function uploadSchoolObj(name) {
+  const baseName = name.replace(/\s*\(업로드\)\s*$/, '');
+  const level =
+    /초등학교$/.test(baseName) ? '초등학교'
+    : /중학교$/.test(baseName) ? '중학교'
+    : /고등학교$/.test(baseName) ? '고등학교'
+    : '유치원';
+  return {
+    officeCode: 'UPLOAD',
+    schoolCode: 'UP-' + name,
+    schoolName: name,
+    level,
+    address: '엑셀 업로드 기관',
+    region: '업로드'
+  };
+}
+
+function uploadRange(name) {
+  const days = Object.keys(((state.uploads || {})[name] || {}).days || {}).sort();
+  if (!days.length) return null;
+  const fmt = d => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
+  let from = fmt(days[0]);
+  const to = fmt(days[days.length - 1]);
+  /* 조회기간 3년 제한에 맞춰 시작일을 조정 */
+  const min = new Date(to + 'T00:00:00');
+  min.setFullYear(min.getFullYear() - 3);
+  min.setDate(min.getDate() + 1);
+  const minISO = dateISO(min);
+  if (from < minISO) from = minISO;
+  return { from, to, count: days.length };
+}
+
+function renderUploadSaved(type) {
+  const box = $('#uploadSavedList');
+  if (!box) return;
+  const names = Object.keys(state.uploads || {}).filter(
+    n => Object.keys((state.uploads[n] || {}).days || {}).length
+  );
+  if (!names.length) { box.innerHTML = ''; return; }
+  box.innerHTML =
+    '<p style="font-weight:800;margin:12px 0 6px">💾 저장된 업로드 기관 <span class="help" style="font-weight:400">— 파일을 다시 올릴 필요 없이 클릭 한 번으로 사용해요</span></p>' +
+    names.map(n => {
+      const r = uploadRange(n);
+      return `<div class="row" style="justify-content:space-between;align-items:center;border:1px solid #e2e2e6;border-radius:10px;padding:8px 12px;margin-bottom:6px">
+        <span style="font-size:13.5px"><b>${esc(n)}</b> · ${r.from} ~ ${r.to} (${r.count}일치)</span>
+        <span>
+          <button class="btn small" data-use-upload="${esc(n)}">이 기관으로 분석</button>
+          <button class="btn ghost small" data-del-upload="${esc(n)}">삭제</button>
+        </span>
+      </div>`;
+    }).join('');
+  $$('[data-use-upload]').forEach(b => {
+    b.onclick = () => selectSchool(uploadSchoolObj(b.dataset.useUpload), type);
+  });
+  $$('[data-del-upload]').forEach(b => {
+    b.onclick = () => {
+      if (!confirm(`${b.dataset.delUpload}의 업로드 식단을 모두 삭제할까요?`)) return;
+      delete state.uploads[b.dataset.delUpload];
+      syncCloud();
+      renderUploadSaved(type);
+    };
+  });
+}
+
 async function registerUploadInstitution(type) {
   const nameInput = $('#uploadInstName');
   const fileInput = $('#uploadExcelFiles');
@@ -2836,11 +2927,6 @@ async function registerUploadInstitution(type) {
     if (!name) throw new Error('기관명을 입력해 주세요.');
     /* 학교급은 원래 이름으로 판정한 뒤, 나이스 연동 학교와 구분되도록 "(업로드)" 표시를 붙임 */
     const baseName = name.replace(/\s*\(업로드\)\s*$/, '');
-    const level =
-      /초등학교$/.test(baseName) ? '초등학교'
-      : /중학교$/.test(baseName) ? '중학교'
-      : /고등학교$/.test(baseName) ? '고등학교'
-      : '유치원';
     name = baseName + '(업로드)';
     state.uploads = state.uploads || {};
     /* 예전 방식(표시 없음)으로 저장된 데이터가 있으면 새 이름으로 합침 */
@@ -2852,14 +2938,7 @@ async function registerUploadInstitution(type) {
     const prev = (state.uploads[name] && state.uploads[name].days) || {};
     state.uploads[name] = { name, days: { ...prev, ...merged } };
     const total = Object.keys(state.uploads[name].days).length;
-    const schoolObj = {
-      officeCode: 'UPLOAD',
-      schoolCode: 'UP-' + name,
-      schoolName: name,
-      level,
-      address: '엑셀 업로드 기관',
-      region: '업로드'
-    };
+    const schoolObj = uploadSchoolObj(name);
     st.textContent = `✅ ${name}: 이번에 ${files.length}개 파일(${months.join(', ')})을 읽어 총 ${total}일치가 쌓였어요.`;
     syncCloud();
     selectSchool(schoolObj, type);
@@ -2883,6 +2962,10 @@ function openSchoolModal(type) {
     state.mine
       ? `현재 학교급: ${esc(state.mine.level)}`
       : '내 학교를 먼저 등록합니다.';
+  const mineNote =
+    type === 'mine'
+      ? '<br><b>내 학교는 본인 근무교만 설정해 주세요. 학교 변경은 전근 시 연 1회만 가능하며, 추가 변경은 개발자 김소리 선생님께 문의해 주세요.</b>'
+      : '';
 
   m.innerHTML = `
     <div class="modal">
@@ -2896,6 +2979,7 @@ function openSchoolModal(type) {
         <p>
           경기도 학교만 검색됩니다.
           ${levelHint}
+          ${mineNote}
         </p>
 
         <div class="searchrow">
@@ -2968,6 +3052,8 @@ function openSchoolModal(type) {
           class="help"
         ></div>
 
+        <div id="uploadSavedList"></div>
+
         <details style="margin-top:10px;border:1px solid #e2e2e6;border-radius:10px;overflow:hidden;background:#fff">
           <summary style="cursor:pointer;padding:10px 14px;font-weight:800;font-size:13.5px;color:#047857">
             📖 유치원 선생님 이용 안내 (누르면 펼쳐져요)
@@ -3031,6 +3117,8 @@ function openSchoolModal(type) {
   $('#uploadExcelFiles').onchange =
     () =>
       registerUploadInstitution(type);
+
+  renderUploadSaved(type);
 
   $('#schoolSearch').onclick =
     () =>
@@ -3169,6 +3257,40 @@ function selectSchool(
   s,
   type
 ) {
+  if (
+    type === 'mine' &&
+    s.officeCode !== 'UPLOAD'
+  ) {
+    const key = schoolKey(s);
+    const returning =
+      state.lastNeisKey && key === state.lastNeisKey;
+    if (!returning) {
+      const changedAt =
+        state.mineChangedAt ? new Date(state.mineChangedAt) : null;
+      const within24h =
+        changedAt && Date.now() - changedAt.getTime() < 86400000;
+      const withinYear =
+        changedAt && Date.now() - changedAt.getTime() < 365 * 86400000;
+      if (state.lastNeisKey && withinYear && !within24h) {
+        alert(
+          '학교 변경은 전근 시 연 1회만 가능합니다.\n' +
+          `(최근 설정일: ${String(state.mineChangedAt).slice(0, 10)})\n\n` +
+          '추가 변경이 필요하면 개발자 김소리 선생님께 따로 문의해 주세요.'
+        );
+        const code = prompt(
+          '개발자에게 받은 해제 코드가 있으면 입력하세요.\n없으면 취소를 눌러 주세요.'
+        );
+        if (String(code || '').trim().toUpperCase() !== 'SORI-OK') return;
+      }
+      const msg =
+        state.mine
+          ? `"내 학교"는 본인이 근무하는 학교만 설정하는 기능이에요.\n타 학교를 내 학교로 설정해 식단 리포트를 보는 것은 예의에 어긋날 수 있어요.\n\n${s.schoolName}(으)로 내 학교를 변경할까요?\n(학교 변경은 전근 시 연 1회만 가능합니다)`
+          : `${s.schoolName}이(가) 본인이 근무하는 학교가 맞나요?\n(내 학교는 본인 근무교만 설정하며, 이후 변경은 전근 시 연 1회만 가능합니다. 잘못 골랐다면 24시간 안에는 자유롭게 정정할 수 있어요.)`;
+      if (!confirm(msg)) return;
+      state.lastNeisKey = key;
+      state.mineChangedAt = new Date().toISOString();
+    }
+  }
   if (
     type === 'mine'
   ) {
