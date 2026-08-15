@@ -2279,10 +2279,11 @@ function renderControls() {
           </h2>
 
           <button
-            class="btn ghost small"
+            class="btn"
             id="changeMine"
+            style="font-size:15px;padding:12px 22px"
           >
-            학교 변경
+            학교변경 / 🧒 유치원선생님 전용
           </button>
 
         </div>
@@ -2833,15 +2834,24 @@ async function registerUploadInstitution(type) {
       Object.assign(merged, parsed.days);
     }
     if (!name) throw new Error('기관명을 입력해 주세요.');
+    /* 학교급은 원래 이름으로 판정한 뒤, 나이스 연동 학교와 구분되도록 "(업로드)" 표시를 붙임 */
+    const baseName = name.replace(/\s*\(업로드\)\s*$/, '');
+    const level =
+      /초등학교$/.test(baseName) ? '초등학교'
+      : /중학교$/.test(baseName) ? '중학교'
+      : /고등학교$/.test(baseName) ? '고등학교'
+      : '유치원';
+    name = baseName + '(업로드)';
     state.uploads = state.uploads || {};
+    /* 예전 방식(표시 없음)으로 저장된 데이터가 있으면 새 이름으로 합침 */
+    if (state.uploads[baseName]) {
+      state.uploads[name] = state.uploads[name] || { name, days: {} };
+      Object.assign(state.uploads[name].days, state.uploads[baseName].days || {});
+      delete state.uploads[baseName];
+    }
     const prev = (state.uploads[name] && state.uploads[name].days) || {};
     state.uploads[name] = { name, days: { ...prev, ...merged } };
     const total = Object.keys(state.uploads[name].days).length;
-    const level =
-      /초등학교$/.test(name) ? '초등학교'
-      : /중학교$/.test(name) ? '중학교'
-      : /고등학교$/.test(name) ? '고등학교'
-      : '유치원';
     const schoolObj = {
       officeCode: 'UPLOAD',
       schoolCode: 'UP-' + name,
