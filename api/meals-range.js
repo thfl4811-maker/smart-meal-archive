@@ -6,6 +6,8 @@ export default async function handler(req,res){
     const school=String(req.query.school||'');
     const from=String(req.query.from||'').replaceAll('-','');
     const to=String(req.query.to||'').replaceAll('-','');
+    const mealRaw=String(req.query.meal||'2');
+    const meal=/^[123]$/.test(mealRaw)?mealRaw:'2';
 
     if(!office||!school||!/^\d{8}$/.test(from)||!/^\d{8}$/.test(to)){
       return send(res,400,{error:'학교 또는 기간 값이 올바르지 않습니다.'});
@@ -36,7 +38,7 @@ export default async function handler(req,res){
       SD_SCHUL_CODE:school,
       MLSV_FROM_YMD:from,
       MLSV_TO_YMD:to,
-      MMEAL_SC_CODE:'2',
+      MMEAL_SC_CODE:meal,
       pSize:'1000'
     });
 
