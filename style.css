@@ -1,0 +1,252 @@
+
+:root{
+  font-family:Pretendard,"Noto Sans KR",Arial,sans-serif;
+  color:#172033;background:#f5f7fb;
+  --primary:#5c63eb;--primary-soft:#eef0ff;--line:#e4e8f0;
+  --muted:#6b7280;--card:#fff;--green:#15805d;--danger:#dc2626;
+}
+*{box-sizing:border-box}body{margin:0;background:#f5f7fb;color:#172033}
+button,input,select{font:inherit}button{cursor:pointer}
+.top{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.topin{max-width:1240px;margin:auto;padding:14px 22px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.brand{font-size:21px;font-weight:950}.brand span{color:var(--primary)}
+.school-pill{display:flex;align-items:center;gap:9px;background:var(--primary-soft);color:#4047bd;border-radius:999px;padding:8px 12px;font-size:13px;font-weight:850}
+.wrap{max-width:1240px;margin:auto;padding:25px 22px 60px}
+.hero{background:linear-gradient(135deg,#fff 15%,#eef0ff);border:1px solid var(--line);border-radius:24px;padding:28px;box-shadow:0 10px 35px rgba(38,49,80,.06)}
+.hero h1{margin:0 0 10px;font-size:34px;line-height:1.25}.hero p{margin:0;color:var(--muted);line-height:1.7}
+.tabs{display:flex;gap:8px;margin:18px 0}.tab{border:1px solid var(--line);background:#fff;padding:11px 17px;border-radius:12px;font-weight:900}.tab.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+.panel,.card{background:#fff;border:1px solid var(--line);border-radius:20px;box-shadow:0 8px 28px rgba(31,41,55,.04)}
+.panel{padding:21px;margin-bottom:17px}.panel h2{margin:0 0 15px;font-size:20px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:11px}
+.field label{display:block;font-size:13px;font-weight:900;margin-bottom:7px}.field input,.field select{width:100%;padding:12px 13px;border:1px solid var(--line);border-radius:11px;background:#fff}
+.btn{border:0;border-radius:11px;padding:12px 18px;background:var(--primary);color:#fff;font-weight:900}.btn.ghost{background:#fff;color:#27314b;border:1px solid var(--line)}.btn.small{padding:8px 11px;font-size:13px}.btn.danger{background:#fff1f2;color:#b91c1c;border:1px solid #fecdd3}
+.row{display:flex;gap:9px;align-items:center}.searchrow{display:grid;grid-template-columns:1fr auto;gap:9px;margin-top:13px}
+.searchrow input{padding:13px;border:1px solid var(--line);border-radius:11px}
+.toggleline{display:flex;align-items:center;gap:9px;margin-top:12px;color:var(--muted);font-size:14px}.toggle{width:44px;height:24px;background:#cfd4de;border-radius:999px;position:relative}.toggle:after{content:"";width:18px;height:18px;background:#fff;border-radius:50%;position:absolute;top:3px;left:3px;transition:.18s}.toggle.on{background:var(--primary)}.toggle.on:after{left:23px}
+.school-layout{display:grid;grid-template-columns:1fr 1fr;gap:14px}.box{border:1px dashed #ccd3e0;border-radius:15px;padding:15px;background:#fbfcff}.box h3{margin:0 0 10px;font-size:15px}
+.school-results{display:grid;gap:8px;margin-top:10px;max-height:260px;overflow:auto}.school-item{width:100%;text-align:left;border:1px solid var(--line);background:#fff;border-radius:12px;padding:11px}.school-item:hover{border-color:var(--primary);background:var(--primary-soft)}.school-item b{display:block}.school-item small{color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}.chip{display:flex;align-items:center;gap:8px;background:var(--primary-soft);color:#4148b9;border-radius:999px;padding:9px 11px;font-size:13px;font-weight:850}.chip button{border:0;background:transparent;color:#6268c8;font-weight:900}
+.status{margin:16px 0;background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px;color:var(--muted)}.status.error{background:#fff1f2;border-color:#fecdd3;color:#b91c1c}
+.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:11px;margin:16px 0}.stat{background:#fff;border:1px solid var(--line);border-radius:15px;padding:16px}.stat span{font-size:13px;color:var(--muted);font-weight:800}.stat b{display:block;font-size:24px;margin-top:6px}
+.analysis{display:grid;grid-template-columns:1fr 1fr;gap:14px}.rank-card{padding:18px}.rank-card h3{margin:0 0 9px}.rank{display:grid;grid-template-columns:30px 1fr auto;gap:9px;align-items:center;padding:11px 0;border-bottom:1px solid #eff1f5}.rank:last-child{border:0}.num{display:grid;place-items:center;width:27px;height:27px;border-radius:8px;background:var(--primary-soft);color:var(--primary);font-weight:950}.rank small{display:block;color:var(--muted);margin-top:3px}
+.section-title{display:flex;justify-content:space-between;align-items:end;margin:26px 0 12px}.section-title h2{margin:0}.section-title p{margin:4px 0 0;color:var(--muted)}
+.meals{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.meal{padding:17px}.meal .date{font-weight:950;font-size:16px}.meal .school{color:var(--primary);font-size:13px;font-weight:900;margin:5px 0 11px}.dish{padding:7px 9px;border-radius:9px;background:#f7f8fb;margin:5px 0}.dish.hit{background:#fff0f1;color:#a51224;font-weight:900}.allergy{color:#8b5b00;font-size:11px}.meal footer{margin-top:12px;padding-top:11px;border-top:1px solid #edf0f4;color:var(--muted);font-size:12px}
+.empty{background:#fff;border:1px dashed #ccd3e0;border-radius:17px;padding:34px;text-align:center;color:var(--muted)}
+.modal{position:fixed;inset:0;background:rgba(15,23,42,.53);display:grid;place-items:center;padding:18px;z-index:100}.modal-card{width:min(650px,100%);max-height:88vh;overflow:auto;background:#fff;border-radius:23px;padding:23px}.modal-card h2{margin:0 0 7px}.modal-card p{color:var(--muted);line-height:1.6}.hidden{display:none!important}
+.help{font-size:12px;color:var(--muted);margin-top:7px}.warn{background:#fff8e8;border:1px solid #fde0a6;border-radius:12px;padding:11px;color:#8b5b00;font-size:13px;margin-top:12px}
+.loading{display:inline-block;width:17px;height:17px;border:2px solid #ddd;border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-3px;margin-right:6px}@keyframes spin{to{transform:rotate(360deg)}}
+@media(max-width:900px){.grid{grid-template-columns:1fr 1fr}.school-layout,.analysis{grid-template-columns:1fr}.summary{grid-template-columns:1fr 1fr}.meals{grid-template-columns:1fr 1fr}}
+@media(max-width:600px){.wrap{padding:16px 13px 40px}.topin{padding:12px 13px}.hero{padding:21px}.hero h1{font-size:27px}.grid,.summary,.meals{grid-template-columns:1fr}.tabs{overflow:auto}.tab{white-space:nowrap}.school-pill{max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+/* 로그인 상태 표시 */
+.cloud-tag{
+  font-size:12px;font-weight:600;
+  padding:5px 10px;border-radius:999px;
+  background:rgba(255,255,255,.15);color:#fff;
+  white-space:nowrap;
+}
+
+/* 작은 버튼 (기존에 .btn.small이 있으면 이 블록은 지워도 됩니다) */
+.btn.small{padding:6px 12px;font-size:12px}
+
+/* 탭이 5개로 늘어나서 좁은 화면 대응 */
+.tabs{flex-wrap:wrap;gap:6px}
+
+/* ⭐ 별점 (내 학교 식단 카드) */
+.stars{display:flex;align-items:center;gap:2px;margin-top:10px}
+.star{
+  background:none;border:none;cursor:pointer;
+  font-size:20px;line-height:1;padding:0 1px;
+  color:#d7d7d7;transition:color .15s,transform .1s;
+}
+.star:hover{transform:scale(1.15)}
+.star.on{color:#f5b301}
+
+/* ✨NEW 배지 (요즘 뜨는 메뉴) */
+.new-badge{
+  display:inline-block;margin-left:4px;
+  font-size:10px;font-weight:800;
+  padding:2px 7px;border-radius:999px;
+  background:#fff3e0;color:#e65100;
+  vertical-align:middle;
+}
+
+/* 📝 스크랩 메모 */
+.memo{
+  margin-top:8px;padding:8px 10px;
+  border-radius:8px;background:#fffbe6;
+  font-size:12.5px;line-height:1.5;color:#5c4b00;
+  word-break:keep-all;
+}
+
+/* 스크랩 모달 textarea */
+textarea{
+  font:inherit;padding:9px 11px;
+  border:1px solid #ddd;border-radius:9px;
+  resize:vertical;box-sizing:border-box;
+}
+textarea:focus{outline:none;border-color:#888}
+
+/* 🗓 업데이트 예정 배지 (헤더 우측) */
+.soon-badge{
+  font-size:11px;font-weight:800;
+  padding:5px 10px;border-radius:999px;
+  background:#fff8e8;color:#8b5b00;border:1px solid #fde0a6;
+  white-space:nowrap;
+}
+@media(max-width:900px){
+  .soon-badge{font-size:10px;padding:4px 8px}
+}
+@media(max-width:600px){
+  .soon-badge{
+    order:5;flex-basis:100%;text-align:center;
+    white-space:normal;line-height:1.4;
+  }
+}
+
+/* 🔥 트렌드: 분류별 세로 컬럼 (TOP 30) */
+.trend-grid{
+  display:grid;
+  grid-template-columns:repeat(6,1fr);
+  gap:10px;align-items:start;
+}
+.trend-col{padding:14px 12px}
+.trend-col h3{font-size:15px}
+.trend-col .rank{grid-template-columns:24px 1fr auto;padding:8px 0}
+.trend-col .num{width:22px;height:22px;font-size:12px;border-radius:6px}
+.trend-col .rank b{font-size:13px;word-break:keep-all}
+.trend-col .rank small{font-size:11px}
+@media(max-width:1240px){.trend-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:900px){.trend-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){.trend-grid{grid-template-columns:1fr}}
+
+/* 학교별 식단 카드 세로 열 (내 학교가 맨 왼쪽) */
+.school-cols{
+  display:grid;
+  grid-template-columns:repeat(var(--cols,3),1fr);
+  gap:12px;align-items:start;
+}
+.school-col .meal{margin-bottom:12px}
+.school-col-title{margin:2px 0 10px;font-size:16px}
+.mine-tag{
+  display:inline-block;font-size:11px;font-weight:800;
+  padding:2px 8px;border-radius:999px;vertical-align:middle;
+  background:var(--primary-soft);color:#4047bd;
+}
+@media(max-width:900px){.school-cols{grid-template-columns:1fr 1fr}}
+@media(max-width:600px){.school-cols{grid-template-columns:1fr}}
+
+/* 📊 리포트: 키워드 월별 추이 */
+.bar-chart{display:grid;gap:6px}
+.bar-row{display:grid;grid-template-columns:44px 1fr 28px;gap:8px;align-items:center}
+.bar-label{font-size:11px;color:var(--muted);font-weight:800}
+.bar-track{height:14px;background:#eef0f6;border-radius:7px;overflow:hidden}
+.bar-fill{height:100%;background:var(--primary);border-radius:7px;min-width:0}
+.bar-val{font-size:12px;font-weight:900;text-align:right}
+
+/* 키워드 편성 날짜 목록 */
+.kw-days{display:grid;gap:4px;max-height:340px;overflow:auto}
+.kw-day{display:flex;justify-content:space-between;align-items:center;padding:7px 9px;border-radius:9px;background:#f7f8fb;font-size:13px}
+.kw-stars{color:#f5b301;font-size:13px;letter-spacing:1px}
+
+/* 메뉴 메모 */
+.memo-btn{border:0;background:transparent;font-size:14px;opacity:.35;padding:2px}
+.memo-btn:hover{opacity:1}
+.menu-memo{margin-top:3px;font-size:11.5px;color:#5c4b00;background:#fffbe6;border-radius:7px;padding:4px 7px;word-break:keep-all}
+
+/* 학교명 펼치기 */
+.sch-more{border:0;background:transparent;color:var(--primary);font-weight:900;font-size:11px;padding:0;text-decoration:underline}
+
+/* 📌 스크랩북 v2 */
+.folder-chip{border:1px solid var(--line);background:#fff;cursor:pointer}
+.chip-on{background:var(--primary);color:#fff;border-color:var(--primary)}
+.chip-on button{color:#fff}
+.scrap-filter{grid-template-columns:2fr 1.6fr 1.6fr 1fr}
+.type-badge{display:inline-block;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px}
+.tb-meal{background:#e8f6ef;color:#0f6b4d}
+.tb-idea{background:#fff3e0;color:#b25400}
+.scrap-cat{display:grid;grid-template-columns:56px 1fr;gap:6px;padding:5px 8px;border-radius:8px;background:#f7f8fb;margin:4px 0;font-size:13px}
+.scrap-cat span{color:var(--muted);font-weight:800;font-size:12px}
+.scrap-sel{outline:2px solid var(--primary);outline-offset:-1px}
+.folder-row{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:12px;padding:9px 11px;background:#fff}
+@media(max-width:900px){.scrap-filter{grid-template-columns:1fr 1fr}}
+@media(max-width:600px){.scrap-filter{grid-template-columns:1fr}}
+
+/* 🖨 인쇄 (A4 세로) */
+#printArea{display:none}
+@media print{
+  body>*:not(#printArea){display:none!important}
+  #printArea{display:block!important;font-family:Pretendard,"Noto Sans KR",sans-serif;color:#111}
+  #printArea h1{font-size:20px;margin:0 0 2px}
+  #printArea .p-meta{font-size:11px;color:#555;margin:0 0 14px}
+  #printArea h2{font-size:15px;margin:16px 0 8px;border-bottom:1.5px solid #333;padding-bottom:4px}
+  .p-card{border:1px solid #bbb;border-radius:8px;padding:10px 12px;margin-bottom:8px;page-break-inside:avoid}
+  .p-title{font-size:13.5px;font-weight:800}
+  .p-type{font-size:10px;font-weight:700;border:1px solid #888;border-radius:999px;padding:1px 7px;margin-left:4px;vertical-align:1px}
+  .p-stars{color:#b8860b;font-size:12px}
+  .p-sub{font-size:10.5px;color:#555;margin:3px 0 6px}
+  .p-row{display:grid;grid-template-columns:52px 1fr;gap:6px;font-size:11.5px;padding:2px 0}
+  .p-row span{color:#666;font-weight:700}
+  .p-memo{margin-top:5px;font-size:11px;background:#f5f5f5;border-radius:6px;padding:5px 8px}
+  @page{size:A4 portrait;margin:14mm}
+}
+
+/* ═══ ⭐ 추천식단: 초안 식단 캘린더 ═══ */
+.cal-grid{
+  display:grid;grid-template-columns:repeat(7,1fr);
+  gap:4px;
+}
+.cal-head{
+  text-align:center;font-size:12px;font-weight:900;
+  color:var(--muted);padding:6px 0;
+}
+.cal-head.sun,.cal-daynum.sun{color:#dc2626}
+.cal-head.sat,.cal-daynum.sat{color:#2563eb}
+.cal-cell{
+  min-height:92px;border:1px solid var(--line);
+  border-radius:10px;padding:6px;background:#fff;
+  cursor:pointer;transition:border-color .12s,box-shadow .12s;
+  display:flex;flex-direction:column;gap:3px;overflow:hidden;
+}
+.cal-cell:hover{border-color:var(--primary);box-shadow:0 2px 10px rgba(92,99,235,.13)}
+.cal-cell.empty{border:0;background:transparent;cursor:default;min-height:0}
+.cal-cell.today{outline:2px solid var(--primary);outline-offset:-1px}
+.cal-daynum{font-size:13px;font-weight:900}
+.cal-evs{display:flex;flex-wrap:wrap;gap:2px}
+.cal-ev{
+  display:inline-block;font-size:10.5px;font-weight:800;
+  padding:2px 6px;border-radius:999px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  max-width:100%;
+}
+.cal-ev.small{font-size:10px;padding:1px 5px}
+.cal-more{background:#eef0f6;color:#6b7280}
+.cal-layer-off{opacity:.45}
+.cal-meal{
+  margin-top:auto;font-size:10.5px;line-height:1.35;
+  color:#0f6b4d;background:#e8f6ef;border-radius:7px;
+  padding:3px 6px;word-break:keep-all;
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;
+  overflow:hidden;
+}
+@media(max-width:900px){
+  .cal-cell{min-height:74px;padding:4px}
+  .cal-ev{font-size:9px;padding:1px 4px}
+  .cal-meal{font-size:9px;-webkit-line-clamp:2}
+}
+@media(max-width:600px){
+  .cal-grid{gap:2px}
+  .cal-cell{min-height:60px;border-radius:7px}
+  .cal-daynum{font-size:11px}
+}
+
+/* 🍚 이번 달 급식일 배지 */
+.cal-count{
+  font-size:13px;font-weight:800;
+  padding:8px 13px;border-radius:999px;
+  background:#e8f6ef;color:#0f6b4d;border:1px solid #bfe6d4;
+  white-space:nowrap;
+}
+.cal-count small{font-weight:700;color:#4c8a6f}
+@media(max-width:900px){
+  .cal-count{white-space:normal;font-size:12px;line-height:1.4}
+}
