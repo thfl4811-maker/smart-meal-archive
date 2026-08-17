@@ -9644,8 +9644,7 @@ let recViewMode =
 
 try {
   if (
-    new URLSearchParams(location.search).get('view') === 'recommend' &&
-    soriBetaOn()
+    new URLSearchParams(location.search).get('view') === 'recommend'
   ) {
     state.tab = 'scrap';
     recViewMode = 'cal';
@@ -9727,11 +9726,26 @@ const WEEK_KR = ['일', '월', '화', '수', '목', '금', '토'];
 
 /* 이 달의 예상 급식일 수 계산:
    평일 − 공휴일 − 학사일정 휴업일(나이스 offDay·방학류 직접 일정) */
+const CAL_OFF_RE = /방학|휴업|재량|휴교|개교기념/;
+
+/* 이 날이 미급식일(주말·공휴일·휴업일)인지 */
+function calIsOffDay(dateStr) {
+  const dc = state.draftCal;
+  const [y, mo, dd] = dateStr.split('-').map(Number);
+  const dow = new Date(y, mo - 1, dd).getDay();
+  if (dow === 0 || dow === 6) return true;
+  if ((SPECIAL_DAYS[dateStr] || []).some(e => e.off)) return true;
+  const ym = dateStr.slice(0, 7);
+  if ((dc.neis[ym] || []).some(e => e.date === dateStr && e.offDay)) return true;
+  if (dc.custom.some(e => e && e.date === dateStr && CAL_OFF_RE.test(e.name))) return true;
+  return false;
+}
+
 function calMealDayCount(ym) {
   const [y, m] = ym.split('-').map(Number);
   const lastDay = new Date(y, m, 0).getDate();
   const dc = state.draftCal;
-  const offRe = /방학|휴업|재량|휴교|개교기념/;
+  const offRe = CAL_OFF_RE;
   let count = 0;
   let neisApplied = !!(dc.neis[ym] && dc.neis[ym].length);
 
@@ -9757,6 +9771,15 @@ function calMealDayCount(ym) {
   }
 
   return { count, neisApplied };
+}
+
+/* 식단 초안 칸 순서: 밥 → 국 → 주찬 → 부찬 → 김치 → 후식 */
+const CAL_CAT_ORDER = ['rice', 'soup', 'main', 'side', 'kimchi', 'dessert'];
+
+function calMealCats(meal) {
+  if (!meal) return {};
+  if (meal.cats && typeof meal.cats === 'object') return meal.cats;
+  return splitMenus(meal.menus || []);
 }
 
 function calEventsFor(dateStr) {
@@ -9842,10 +9865,13 @@ function renderDraftCal() {
     const more = evs.length - shown.length;
     const meal = dc.meals[ds];
 
+    const offDay = calIsOffDay(ds);
+
     cells += `
       <div
-        class="cal-cell ${ds === todayStr ? 'today' : ''}"
+        class="cal-cell ${ds === todayStr ? 'today' : ''} ${offDay ? 'cal-off' : ''}"
         data-cal-day="${ds}"
+        ${offDay ? 'title="미급식일 (주말·공휴일·휴업일)"' : ''}
       >
         <div class="cal-daynum ${dow === 0 ? 'sun' : dow === 6 ? 'sat' : ''}">
           ${day}
@@ -9856,7 +9882,11 @@ function renderDraftCal() {
         </div>
         ${
           meal && meal.menus && meal.menus.length
-            ? `<div class="cal-meal">🍱 ${esc(meal.menus.join(' / '))}</div>`
+            ? `<div class="cal-meal">🍱 ${esc(
+                CAL_CAT_ORDER
+                  .flatMap(k => calMealCats(meal)[k] || [])
+                  .join(' / ') || meal.menus.join(' / ')
+              )}</div>`
             : ''
         }
       </div>
@@ -10112,17 +10142,28 @@ function openCalDayModal(dateStr) {
         </div>
 
         <div class="field" style="margin:16px 0 0">
-          <label>🍱 식단 초안</label>
+          <label>🍱 식단 초안 — 밥 · 국 · 주찬 · 부찬 · 김치 · 후식 순</label>
           <textarea
-            id="calMenus"
-            rows="3"
+            id="calPaste"
+            rows="2"
             style="width:100%"
-            placeholder="찹쌀밥 / 쇠고기미역국 / LA갈비찜 / 파프리카잡채 / 배추김치 / 과일주스"
-          >${esc(meal && meal.menus ? meal.menus.join(' / ') : '')}</textarea>
+            placeholder="여기에 복사한 식단을 붙여넣으면 아래 칸에 자동 분류돼요 (※ 날짜 출처 줄은 자동 무시)"
+          ></textarea>
+          <div class="cal-cats">
+            ${CAL_CAT_ORDER.map(k => `
+              <div class="cal-cat-row">
+                <span>${CAT_LABEL[k]}</span>
+                <input
+                  id="calCat_${k}"
+                  value="${esc((calMealCats(meal)[k] || []).join(' / '))}"
+                  placeholder="－"
+                >
+              </div>
+            `).join('')}
+          </div>
           <p class="help">
-            메뉴는 <b>/</b> 로 구분해요. 아카이브·조회 화면의 '복사' 버튼으로 복사한
-            식단을 그대로 붙여넣으면 돼요. 복사할 때 함께 붙는 날짜 출처 줄(※)은
-            자동으로 무시되니 그대로 두셔도 돼요.
+            한 칸에 여러 개면 <b>/</b> 로 구분해요. 자동 분류가 틀리면
+            칸 사이에서 직접 옮겨 적으면 돼요.
           </p>
           <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">
             <button class="btn small" id="calMealSave">💾 저장</button>
@@ -10229,11 +10270,42 @@ function openCalDayModal(dateStr) {
     if (e.key === 'Enter') addEv();
   };
 
+  /* 붙여넣기 → 6칸 자동 분류 */
+  const fillCats = menus => {
+    const g = splitMenus(menus);
+    CAL_CAT_ORDER.forEach(k => {
+      const el = $('#calCat_' + k);
+      if (el) el.value = (g[k] || []).join(' / ');
+    });
+  };
+
+  const readCats = () => {
+    const cats = {};
+    const menus = [];
+    CAL_CAT_ORDER.forEach(k => {
+      const el = $('#calCat_' + k);
+      const arr = el ? parseMenuText(el.value) : [];
+      cats[k] = arr;
+      menus.push(...arr);
+    });
+    return { menus, cats };
+  };
+
+  $('#calPaste').addEventListener('paste', () => {
+    setTimeout(() => {
+      const menus = parseMenuText($('#calPaste').value);
+      if (menus.length) {
+        fillCats(menus);
+        $('#calPaste').value = '';
+      }
+    }, 60);
+  });
+
   /* 식단 초안 저장·복사·비우기 */
   $('#calMealSave').onclick = () => {
-    const menus = parseMenuText($('#calMenus').value);
+    const { menus, cats } = readCats();
     if (menus.length) {
-      state.draftCal.meals[dateStr] = { menus };
+      state.draftCal.meals[dateStr] = { menus, cats };
     } else {
       delete state.draftCal.meals[dateStr];
     }
@@ -10243,7 +10315,7 @@ function openCalDayModal(dateStr) {
   };
 
   $('#calMealCopy').onclick = () => {
-    const menus = parseMenuText($('#calMenus').value);
+    const { menus } = readCats();
     if (!menus.length) {
       alert('복사할 메뉴가 없어요.');
       return;
@@ -10253,7 +10325,11 @@ function openCalDayModal(dateStr) {
   };
 
   $('#calMealClear').onclick = () => {
-    $('#calMenus').value = '';
+    CAL_CAT_ORDER.forEach(k => {
+      const el = $('#calCat_' + k);
+      if (el) el.value = '';
+    });
+    $('#calPaste').value = '';
   };
 
   /* 스크랩에서 가져오기 */
@@ -10263,9 +10339,7 @@ function openCalDayModal(dateStr) {
       const sc = mealScraps.find(
         x => x.id === $('#calScrapSel').value
       );
-      if (sc) {
-        $('#calMenus').value = sc.menus.join(' / ');
-      }
+      if (sc) fillCats(sc.menus);
     };
   }
 
@@ -10326,8 +10400,9 @@ function openCalDayModal(dateStr) {
 
         $$('[data-ref-use]').forEach(b => {
           b.onclick = () => {
-            $('#calMenus').value = b.dataset.refUse;
-            $('#calMenus').scrollIntoView({ behavior: 'smooth', block: 'center' });
+            fillCats(parseMenuText(b.dataset.refUse));
+            const first = $('#calCat_rice');
+            if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
           };
         });
         $$('[data-ref-copy]').forEach(b => {
