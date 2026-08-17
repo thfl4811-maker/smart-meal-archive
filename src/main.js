@@ -9876,6 +9876,45 @@ function calBadge(ev, small = true) {
   `;
 }
 
+/* ── 지난달 꼬리 주 실제 급식 (참고용) ── */
+const _prevMealsCache = {};
+
+function calCleanDishes(raw) {
+  return String(raw || '')
+    .split(/<br\s*\/?>|\n/i)
+    .flatMap(x => x.includes(' / ') ? x.split(' / ') : [x])
+    .map(x =>
+      x.replace(/\([^)]*\)/g, '')
+        .replace(/[\d.]+$/g, '')
+        .trim()
+    )
+    .filter(Boolean);
+}
+
+async function loadPrevTailMeals(ym, dates) {
+  if (!state.mine || !dates.length) return;
+  if (_prevMealsCache[ym]) return;
+  _prevMealsCache[ym] = null; /* 로딩 중 표시 */
+  try {
+    const rows = await fetchMeals(
+      state.mine,
+      dates[0],
+      dates[dates.length - 1]
+    );
+    const map = {};
+    rows.forEach(r => {
+      const dd = String(r.date);
+      const ds =
+        `${dd.slice(0, 4)}-${dd.slice(4, 6)}-${dd.slice(6, 8)}`;
+      map[ds] = calCleanDishes(r.dishes);
+    });
+    _prevMealsCache[ym] = map;
+  } catch (e) {
+    _prevMealsCache[ym] = {};
+  }
+  renderDraftCal();
+}
+
 /* ── 캘린더 렌더 ── */
 function renderDraftCal() {
   const c = $('#controls');
@@ -9904,8 +9943,57 @@ function renderDraftCal() {
 
   const hideWk = !!dc.hideWeekend;
 
-  let cells = '';
-  let started = false;
+  /* 첫 주 앞자리: 지난달 마지막 날들 (실제 급식 참고) */
+  const prevDates = [];
+  {
+    let first = new Date(y, m - 1, 1);
+    if (hideWk) {
+      while (first.getDay() === 0 || first.getDay() === 6) {
+        first.setDate(first.getDate() + 1);
+      }
+    }
+    const padN = hideWk ? first.getDay() - 1 : first.getDay();
+    const back = new Date(first);
+    while (prevDates.length < padN) {
+      back.setDate(back.getDate() - 1);
+      if (hideWk && (back.getDay() === 0 || back.getDay() === 6)) continue;
+      prevDates.unshift(dateISO(back));
+    }
+  }
+
+  const prevMap = _prevMealsCache[calView.ym];
+
+  let cells = prevDates.map(pds => {
+    const [ , pm2, pd2] = pds.split('-').map(Number);
+    const menus = prevMap ? prevMap[pds] : undefined;
+    let body = '';
+    if (prevMap === undefined || prevMap === null) {
+      body = state.mine
+        ? '<div class="prev-hint">지난달 실제 급식 불러오는 중…</div>'
+        : '';
+    } else if (menus && menus.length) {
+      const g = splitMenus(menus);
+      body = `<div class="cal-meal2">${
+        CAL_CAT_ORDER.map(k =>
+          (g[k] || []).length
+            ? `<div class="cmr"><b>${CAL_CAT_SHORT[k]}</b><span>${esc(g[k].join(', '))}</span></div>`
+            : ''
+        ).join('')
+      }</div>`;
+    } else {
+      body = '<div class="prev-hint">급식 자료 없음</div>';
+    }
+    return `
+      <div class="cal-cell prevm" title="지난달 실제 급식 (나이스 기준, 참고용)">
+        <div class="cal-daynum prev">${pm2}/${pd2}
+          <span class="prev-tag">지난달 실제</span>
+        </div>
+        ${body}
+      </div>
+    `;
+  }).join('');
+
+  let started = prevDates.length > 0;
 
   for (let day = 1; day <= lastDay; day++) {
     const ds = `${calView.ym}-${String(day).padStart(2, '0')}`;
@@ -9914,10 +10002,6 @@ function renderDraftCal() {
     if (hideWk && (dow === 0 || dow === 6)) continue;
 
     if (!started) {
-      const pad = hideWk ? dow - 1 : firstDow;
-      for (let i = 0; i < pad; i++) {
-        cells += `<div class="cal-cell empty"></div>`;
-      }
       started = true;
     }
     const evs = calEventsFor(ds);
@@ -10058,6 +10142,14 @@ function renderDraftCal() {
     persist();
     renderDraftCal();
   };
+
+  if (
+    prevDates.length &&
+    state.mine &&
+    _prevMealsCache[calView.ym] === undefined
+  ) {
+    loadPrevTailMeals(calView.ym, prevDates);
+  }
 
   $('#calNeisLoad').onclick = loadNeisSchedule;
   $('#calSchedPaste').onclick = openSchedPasteModal;
