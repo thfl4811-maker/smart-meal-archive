@@ -10358,7 +10358,8 @@ function printCalMonth() {
     `h1{font-size:15px;margin:0 0 8px}` +
     `table{border-collapse:collapse;width:100%;table-layout:fixed}` +
     `th{border:1px solid #999;background:#eef1f8;font-size:11px;padding:3px}` +
-    `td{border:1px solid #999;vertical-align:top;padding:4px;font-size:9.5px;height:88px}` +
+    `td{border:1px solid #999;vertical-align:top;padding:3px 4px;font-size:9px;line-height:1.25}` +
+    `tr{page-break-inside:avoid;break-inside:avoid}` +
     `td.empty{background:#fafafa}` +
     `td.off{background:repeating-linear-gradient(-45deg,#fff3f3 0 6px,#ffdede 6px 12px)}` +
     `td.off .dn{color:#c22}` +
@@ -10371,7 +10372,12 @@ function printCalMonth() {
     `</style></head><body>` +
     `<h1>🍚 ${y}년 ${m}월 식단 초안 — ${esc(state.mine ? state.mine.schoolName : '')}</h1>` +
     `<table><tr>${headDows.map(d => `<th>${WEEK_KR[d]}</th>`).join('')}</tr>${body}</table>` +
-    `<scr` + `ipt>window.print()</scr` + `ipt></body></html>`
+    `<scr` + `ipt>(function(){` +
+    `var avail=720;` +
+    `var h=document.body.scrollHeight;` +
+    `if(h>avail){document.body.style.zoom=Math.max(0.4,(avail/h)).toFixed(3);}` +
+    `setTimeout(function(){window.print();},80);` +
+    `})()</scr` + `ipt></body></html>`
   );
   w.document.close();
 }
