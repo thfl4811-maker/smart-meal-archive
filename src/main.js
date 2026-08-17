@@ -10262,31 +10262,74 @@ function extractMenuSource(text) {
   return line ? line.replace(/^※\s*/, '') : '';
 }
 
-/* ── 🖨 월 식단표 출력 ── */
+/* ── 🖨 월 식단표 출력 (캘린더 격자 형태) ── */
 function printCalMonth() {
   const [y, m] = calView.ym.split('-').map(Number);
   const lastDay = new Date(y, m, 0).getDate();
   const hideWk = !!state.draftCal.hideWeekend;
-  let rows = '';
+  const cols = hideWk ? 5 : 7;
 
+  /* 셀 목록: 지난달 꼬리 + 이번 달 */
+  const items = [];
+  {
+    let first = new Date(y, m - 1, 1);
+    if (hideWk) {
+      while (first.getDay() === 0 || first.getDay() === 6) {
+        first.setDate(first.getDate() + 1);
+      }
+    }
+    const padN = hideWk ? first.getDay() - 1 : first.getDay();
+    const back = new Date(first);
+    const prevs = [];
+    while (prevs.length < padN) {
+      back.setDate(back.getDate() - 1);
+      if (hideWk && (back.getDay() === 0 || back.getDay() === 6)) continue;
+      prevs.unshift(dateISO(back));
+    }
+    prevs.forEach(ds => items.push({ type: 'prev', ds }));
+  }
   for (let day = 1; day <= lastDay; day++) {
-    const ds = `${calView.ym}-${String(day).padStart(2, '0')}`;
     const dow = new Date(y, m - 1, day).getDay();
     if (hideWk && (dow === 0 || dow === 6)) continue;
-
-    const off = calIsOffDay(ds);
-    const meal = state.draftCal.meals[ds];
-    const g = meal ? calMealCats(meal) : {};
-
-    rows += `<tr class="${off ? 'off' : ''}">` +
-      `<td class="d">${m}/${day}(${WEEK_KR[dow]})</td>` +
-      CAL_CAT_ORDER.map(k =>
-        `<td>${esc((g[k] || []).join(', '))}</td>`
-      ).join('') +
-      `<td class="note">${off ? '미급식일 ' : ''}${
-        meal && meal.src ? '📎 ' + esc(meal.src) : ''
-      }</td></tr>`;
+    items.push({
+      type: 'day',
+      ds: `${calView.ym}-${String(day).padStart(2, '0')}`
+    });
   }
+  while (items.length % cols) items.push({ type: 'empty' });
+
+  const pm = _prevMealsCache[calView.ym];
+
+  const mealRows = g =>
+    CAL_CAT_ORDER.map(k =>
+      (g[k] || []).length
+        ? `<div class="mr"><b>${CAL_CAT_SHORT[k]}</b><span>${esc(g[k].join(', '))}</span></div>`
+        : ''
+    ).join('');
+
+  const cellHTML = it => {
+    if (it.type === 'empty') return `<td class="empty"></td>`;
+    const parts = it.ds.split('-').map(Number);
+    const mm = parts[1], dd = parts[2];
+    if (it.type === 'prev') {
+      const menus = pm && pm[it.ds];
+      const g = menus && menus.length ? splitMenus(menus) : null;
+      return `<td class="prev"><div class="dn">${mm}/${dd} <em>지난달 실제</em></div>${g ? mealRows(g) : ''}</td>`;
+    }
+    const off = calIsOffDay(it.ds);
+    const evs = calEventsFor(it.ds).map(e => esc(e.name)).join(', ');
+    const meal = state.draftCal.meals[it.ds];
+    const g = meal ? calMealCats(meal) : null;
+    return `<td class="${off ? 'off' : ''}"><div class="dn">${dd}${evs ? ` <em>${evs}</em>` : ''}</div>${g ? mealRows(g) : ''}${
+      meal && meal.src ? `<div class="src">📎 ${esc(meal.src)}</div>` : ''
+    }</td>`;
+  };
+
+  let body = '';
+  for (let i = 0; i < items.length; i += cols) {
+    body += `<tr>${items.slice(i, i + cols).map(cellHTML).join('')}</tr>`;
+  }
+  const headDows = hideWk ? [1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6];
 
   const w = window.open('', '_blank');
   if (!w) {
@@ -10294,17 +10337,26 @@ function printCalMonth() {
     return;
   }
   w.document.write(
-    `<html><head><title>${y}년 ${m}월 식단 초안</title>` +
-    `<style>body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;padding:18px}` +
-    `h1{font-size:17px;margin:0 0 10px}` +
-    `table{border-collapse:collapse;width:100%}` +
-    `th,td{border:1px solid #888;padding:4px 6px;font-size:11.5px;text-align:left;vertical-align:top}` +
-    `th{background:#eef1f8}td.d{white-space:nowrap;font-weight:700}` +
-    `tr.off td{background:#ffefef;color:#b33}td.note{font-size:10px;color:#666}` +
-    `@media print{body{padding:0}}</style></head><body>` +
+    `<html><head><title>${y}년 ${m}월 식단 초안</title><style>` +
+    `@page{size:A4 landscape;margin:8mm}` +
+    `*{-webkit-print-color-adjust:exact;print-color-adjust:exact}` +
+    `body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;padding:6px}` +
+    `h1{font-size:15px;margin:0 0 8px}` +
+    `table{border-collapse:collapse;width:100%;table-layout:fixed}` +
+    `th{border:1px solid #999;background:#eef1f8;font-size:11px;padding:3px}` +
+    `td{border:1px solid #999;vertical-align:top;padding:4px;font-size:9.5px;height:88px}` +
+    `td.empty{background:#fafafa}` +
+    `td.off{background:repeating-linear-gradient(-45deg,#fff3f3 0 6px,#ffdede 6px 12px)}` +
+    `td.off .dn{color:#c22}` +
+    `td.prev{background:#f3f5f9}td.prev .dn{color:#889}` +
+    `.dn{font-weight:800;font-size:11px;margin-bottom:2px}` +
+    `.dn em{font-style:normal;font-weight:700;font-size:8px;color:#667;background:#e8ecf4;border-radius:4px;padding:0 3px}` +
+    `.mr{display:flex;gap:3px;line-height:1.3}` +
+    `.mr b{flex:none;width:24px;color:#556}` +
+    `.src{margin-top:2px;font-size:8px;color:#889}` +
+    `</style></head><body>` +
     `<h1>🍚 ${y}년 ${m}월 식단 초안 — ${esc(state.mine ? state.mine.schoolName : '')}</h1>` +
-    `<table><tr><th>날짜</th><th>밥</th><th>국·찌개</th><th>주찬</th><th>부찬</th><th>김치</th><th>후식</th><th>비고</th></tr>` +
-    rows + `</table>` +
+    `<table><tr>${headDows.map(d => `<th>${WEEK_KR[d]}</th>`).join('')}</tr>${body}</table>` +
     `<scr` + `ipt>window.print()</scr` + `ipt></body></html>`
   );
   w.document.close();
