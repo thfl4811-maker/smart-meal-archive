@@ -217,8 +217,8 @@ function mergeCloudWithLocal(cloud, local) {
 
   merged.draftCal = JSON.stringify(
     mergeDraftCal(
-      parseDraftCal(c.draftCal),
-      parseDraftCal(l.draftCal)
+      parseDraftCal(l.draftCal),
+      parseDraftCal(c.draftCal)
     )
   );
 
@@ -401,8 +401,10 @@ function applyCloudData(d) {
   state.baseFolder =
     d.baseFolder || '기본 폴더';
 
+  /* 클라우드가 이 기기의 최신 작업을 덮어쓰지 않도록 병합 (로컬 우선) */
   state.draftCal =
-    normalizeDraftCal(
+    mergeDraftCal(
+      state.draftCal,
       parseDraftCal(d.draftCal)
     );
 
@@ -10033,7 +10035,11 @@ function renderDraftCal() {
                     ? `<div class="cmr"><b>${CAL_CAT_SHORT[k]}</b><span>${esc(arr.join(', '))}</span></div>`
                     : '';
                 }).join('')
-              }</div>`
+              }</div>${
+                meal.src
+                  ? `<div class="cal-src">📎 ${esc(meal.src)}</div>`
+                  : ''
+              }`
             : ''
         }
       </div>
@@ -10080,6 +10086,12 @@ function renderDraftCal() {
             style="text-decoration:none"
             title="캘린더만 새 창으로 열어 아카이브 조회 창과 나란히 작업할 수 있어요"
           >↗ 새 창</a>
+          <button class="btn ghost small" id="calPrint">
+            🖨 출력
+          </button>
+          <button class="btn ghost small" id="calDupCheck">
+            🔁 중복 체크
+          </button>
           <button
             class="btn ghost small"
             id="calWkToggle"
@@ -10142,6 +10154,9 @@ function renderDraftCal() {
     persist();
     renderDraftCal();
   };
+
+  $('#calPrint').onclick = printCalMonth;
+  $('#calDupCheck').onclick = openDupCheck;
 
   if (
     prevDates.length &&
@@ -10236,6 +10251,150 @@ function copyCalMonth() {
 
   navigator.clipboard.writeText(lines.join('\n'));
   alert(`📄 ${lines.length}일치 식단 초안을 복사했어요.`);
+}
+
+/* 복붙 텍스트에서 ※ 출처 줄 추출 */
+function extractMenuSource(text) {
+  const line = String(text || '')
+    .split(/\n+/)
+    .map(x => x.trim())
+    .find(x => x.startsWith('※'));
+  return line ? line.replace(/^※\s*/, '') : '';
+}
+
+/* ── 🖨 월 식단표 출력 ── */
+function printCalMonth() {
+  const [y, m] = calView.ym.split('-').map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  const hideWk = !!state.draftCal.hideWeekend;
+  let rows = '';
+
+  for (let day = 1; day <= lastDay; day++) {
+    const ds = `${calView.ym}-${String(day).padStart(2, '0')}`;
+    const dow = new Date(y, m - 1, day).getDay();
+    if (hideWk && (dow === 0 || dow === 6)) continue;
+
+    const off = calIsOffDay(ds);
+    const meal = state.draftCal.meals[ds];
+    const g = meal ? calMealCats(meal) : {};
+
+    rows += `<tr class="${off ? 'off' : ''}">` +
+      `<td class="d">${m}/${day}(${WEEK_KR[dow]})</td>` +
+      CAL_CAT_ORDER.map(k =>
+        `<td>${esc((g[k] || []).join(', '))}</td>`
+      ).join('') +
+      `<td class="note">${off ? '미급식일 ' : ''}${
+        meal && meal.src ? '📎 ' + esc(meal.src) : ''
+      }</td></tr>`;
+  }
+
+  const w = window.open('', '_blank');
+  if (!w) {
+    alert('팝업이 차단됐어요. 이 사이트의 팝업을 허용해주세요.');
+    return;
+  }
+  w.document.write(
+    `<html><head><title>${y}년 ${m}월 식단 초안</title>` +
+    `<style>body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;padding:18px}` +
+    `h1{font-size:17px;margin:0 0 10px}` +
+    `table{border-collapse:collapse;width:100%}` +
+    `th,td{border:1px solid #888;padding:4px 6px;font-size:11.5px;text-align:left;vertical-align:top}` +
+    `th{background:#eef1f8}td.d{white-space:nowrap;font-weight:700}` +
+    `tr.off td{background:#ffefef;color:#b33}td.note{font-size:10px;color:#666}` +
+    `@media print{body{padding:0}}</style></head><body>` +
+    `<h1>🍚 ${y}년 ${m}월 식단 초안 — ${esc(state.mine ? state.mine.schoolName : '')}</h1>` +
+    `<table><tr><th>날짜</th><th>밥</th><th>국·찌개</th><th>주찬</th><th>부찬</th><th>김치</th><th>후식</th><th>비고</th></tr>` +
+    rows + `</table>` +
+    `<scr` + `ipt>window.print()</scr` + `ipt></body></html>`
+  );
+  w.document.close();
+}
+
+/* ── 🔁 중복 메뉴·식재료 체크 ── */
+function openDupCheck() {
+  const [y, m] = calView.ym.split('-').map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  const occur = {};
+
+  const add = (name, label) => {
+    const k = String(name || '').trim();
+    if (!k) return;
+    (occur[k] = occur[k] || []).push(label);
+  };
+
+  /* 지난달 꼬리 주 실제 급식도 포함 (연속 중복 방지) */
+  const pm = _prevMealsCache[calView.ym];
+  if (pm && typeof pm === 'object') {
+    Object.entries(pm).forEach(([ds, menus]) => {
+      const dd = ds.split('-');
+      (menus || []).forEach(n =>
+        add(n, `${+dd[1]}/${+dd[2]}(실제)`)
+      );
+    });
+  }
+
+  for (let day = 1; day <= lastDay; day++) {
+    const ds = `${calView.ym}-${String(day).padStart(2, '0')}`;
+    const meal = state.draftCal.meals[ds];
+    if (meal && meal.menus) {
+      meal.menus.forEach(n => add(n, `${m}/${day}`));
+    }
+  }
+
+  const dups = Object.entries(occur)
+    .filter(([, v]) => v.length > 1)
+    .sort((a, b) => b[1].length - a[1].length);
+
+  const major = [];
+  const minor = [];
+  dups.forEach(([k, v]) => {
+    const cat = classify(k);
+    (cat === 'rice' || cat === 'kimchi' ? minor : major)
+      .push([k, v]);
+  });
+
+  const row = ([k, v]) => `
+    <div class="kw-day" style="gap:8px">
+      <b style="flex:none">${esc(k)}</b>
+      <span style="color:#b91c1c;font-weight:800;flex:none">${v.length}회</span>
+      <span class="help" style="margin:0">${v.join(' · ')}</span>
+    </div>
+  `;
+
+  $('#modal').innerHTML = `
+    <div class="modal" id="dupModal">
+      <div class="modal-card">
+        <div class="row" style="justify-content:space-between">
+          <h2>🔁 ${m}월 중복 메뉴 체크</h2>
+          <button class="btn ghost small" id="dupClose">닫기 ✕</button>
+        </div>
+        <p class="help">
+          이번 달 식단 초안과 첫 주에 표시된 지난달 실제 급식을 합쳐
+          2회 이상 나온 메뉴예요. 밥·김치 반복은 아래에 따로 접어뒀어요.
+        </p>
+        ${
+          major.length
+            ? major.map(row).join('')
+            : `<div class="help" style="margin-top:6px">👍 반복된 주·부찬/국/후식이 없어요!</div>`
+        }
+        ${
+          minor.length
+            ? `<details style="margin-top:10px">
+                 <summary style="cursor:pointer;font-weight:800">
+                   밥·김치류 반복 ${minor.length}건 (자연스러운 반복)
+                 </summary>
+                 ${minor.map(row).join('')}
+               </details>`
+            : ''
+        }
+      </div>
+    </div>
+  `;
+
+  $('#dupClose').onclick = () => { $('#modal').innerHTML = ''; };
+  $('#dupModal').onclick = e => {
+    if (e.target.id === 'dupModal') $('#modal').innerHTML = '';
+  };
 }
 
 /* ── ' / ' 형식 텍스트 ↔ 메뉴 배열 ── */
@@ -10348,9 +10507,20 @@ function openCalDayModal(dateStr) {
               </div>
             `).join('')}
           </div>
+          <div
+            class="row"
+            id="calSrcRow"
+            style="gap:6px;margin-top:6px;align-items:center;${meal && meal.src ? '' : 'display:none'}"
+          >
+            <span class="help" style="margin:0">
+              📎 출처: <b id="calSrcTxt">${esc((meal && meal.src) || '')}</b>
+            </span>
+            <button class="btn ghost small" id="calSrcClear">✕</button>
+          </div>
           <p class="help">
             한 칸에 여러 개면 <b>/</b> 로 구분해요. 자동 분류가 틀리면
-            칸 사이에서 직접 옮겨 적으면 돼요.
+            칸 사이에서 직접 옮겨 적으면 돼요. 복붙한 식단의 ※ 출처(날짜·학교)는
+            자동으로 함께 저장돼 업무포털에서 원본 찾기 쉬워요.
           </p>
           <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">
             <button class="btn small" id="calMealSave">💾 저장</button>
@@ -10473,6 +10643,20 @@ function openCalDayModal(dateStr) {
     };
   }
 
+  /* 출처(복붙 날짜) 상태 */
+  let curSrc = (meal && meal.src) || '';
+  const setSrc = v => {
+    curSrc = v || '';
+    const row = $('#calSrcRow');
+    const t = $('#calSrcTxt');
+    if (row && t) {
+      t.textContent = curSrc;
+      row.style.display = curSrc ? '' : 'none';
+    }
+  };
+  const srcClear = $('#calSrcClear');
+  if (srcClear) srcClear.onclick = () => setSrc('');
+
   /* 붙여넣기 → 6칸 자동 분류 */
   const fillCats = menus => {
     const g = splitMenus(menus);
@@ -10496,9 +10680,12 @@ function openCalDayModal(dateStr) {
 
   $('#calPaste').addEventListener('paste', () => {
     setTimeout(() => {
-      const menus = parseMenuText($('#calPaste').value);
+      const raw = $('#calPaste').value;
+      const menus = parseMenuText(raw);
       if (menus.length) {
         fillCats(menus);
+        const src = extractMenuSource(raw);
+        if (src) setSrc(src);
         $('#calPaste').value = '';
       }
     }, 60);
@@ -10508,7 +10695,10 @@ function openCalDayModal(dateStr) {
   $('#calMealSave').onclick = () => {
     const { menus, cats } = readCats();
     if (menus.length) {
-      state.draftCal.meals[dateStr] = { menus, cats };
+      state.draftCal.meals[dateStr] =
+        curSrc
+          ? { menus, cats, src: curSrc }
+          : { menus, cats };
     } else {
       delete state.draftCal.meals[dateStr];
     }
@@ -10523,7 +10713,10 @@ function openCalDayModal(dateStr) {
       alert('복사할 메뉴가 없어요.');
       return;
     }
-    navigator.clipboard.writeText(menus.join(' / '));
+    navigator.clipboard.writeText(
+      menus.join(' / ') +
+      (curSrc ? '\n※ ' + curSrc : '')
+    );
     alert('복사했습니다.');
   };
 
@@ -10542,7 +10735,14 @@ function openCalDayModal(dateStr) {
       const sc = mealScraps.find(
         x => x.id === $('#calScrapSel').value
       );
-      if (sc) fillCats(sc.menus);
+      if (sc) {
+        fillCats(sc.menus);
+        setSrc(
+          [sc.date || '', sc.school || '']
+            .filter(Boolean)
+            .join(' · ')
+        );
+      }
     };
   }
 
@@ -10594,7 +10794,7 @@ function openCalDayModal(dateStr) {
                 <b>${rm}/${rday}(${rdow})</b> ${esc(joined)}
               </span>
               <span class="row" style="gap:4px;flex:none">
-                <button class="btn small" data-ref-use="${esc(joined)}">넣기</button>
+                <button class="btn small" data-ref-use="${esc(joined)}" data-ref-src="${esc(src)}">넣기</button>
                 <button class="btn ghost small" data-ref-copy="${esc(joined + '\n※ ' + src)}">복사</button>
               </span>
             </div>
@@ -10604,6 +10804,7 @@ function openCalDayModal(dateStr) {
         $$('[data-ref-use]').forEach(b => {
           b.onclick = () => {
             fillCats(parseMenuText(b.dataset.refUse));
+            setSrc(b.dataset.refSrc || '');
             const first = $('#calCat_rice');
             if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
           };

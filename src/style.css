@@ -302,3 +302,7 @@ textarea:focus{outline:none;border-color:#888}
 .prev-hint{font-size:9.5px;color:#9aa4b4;margin-top:4px}
 .cal-cell.prevm .cmr{opacity:.75}
 .cal-grid.wk5 .cal-daynum.prev{font-size:13px}
+
+/* 식단 출처 표시 */
+.cal-src{font-size:8.5px;color:#8a93a3;margin-top:2px}
+.cal-grid.wk5 .cal-src{font-size:10px}
