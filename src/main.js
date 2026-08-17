@@ -6011,6 +6011,13 @@ function scrapCard(sc) {
 
         <button
           class="btn ghost small"
+          data-copy-scrap="${sc.id}"
+        >
+          복사
+        </button>
+
+        <button
+          class="btn ghost small"
           data-edit-memo="${sc.id}"
         >
           메모
@@ -6239,6 +6246,47 @@ function bindScrapbook(list) {
                 };
             }
           );
+      }
+    );
+
+  $$('[data-copy-scrap]')
+    .forEach(
+      b => {
+        b.onclick =
+          () => {
+            const sc =
+              state.scraps.find(
+                x => x.id === b.dataset.copyScrap
+              );
+            if (!sc) return;
+
+            /* 밥·국·주찬·부찬·김치·후식 순으로 복사 */
+            const ordered =
+              ['rice','soup','main','side','kimchi','dessert']
+                .flatMap(k => sc[k] || []);
+
+            const menus =
+              ordered.length
+                ? ordered
+                : (sc.menus || []);
+
+            if (!menus.length) {
+              alert('복사할 메뉴가 없어요.');
+              return;
+            }
+
+            const src = [
+              sc.servedDate || sc.date || '',
+              sc.school || ''
+            ].filter(Boolean).join(' · ');
+
+            navigator.clipboard.writeText(
+              menus.join(' / ') +
+              (src ? '\n※ ' + src : '')
+            );
+
+            alert('복사했습니다.');
+          };
       }
     );
 
