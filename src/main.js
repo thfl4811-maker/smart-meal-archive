@@ -2,6 +2,11 @@ import './style.css';
 import { initializeApp } from 'firebase/app';
 import * as XLSX from 'xlsx';
 import {
+  SPECIAL_DAYS,
+  SPECIAL_CATS,
+  SPECIAL_RANGE
+} from './special-days.js';
+import {
   getAuth,
   signInWithPopup,
   GoogleAuthProvider,
@@ -88,7 +93,14 @@ const state = {
     localStorage.getItem('archive_report_note') || '',
 
   baseFolder:
-    localStorage.getItem('archive_base_folder') || '기본 폴더'
+    localStorage.getItem('archive_base_folder') || '기본 폴더',
+
+  /* ⭐ 추천식단: 초안 캘린더 */
+  draftCal: normalizeDraftCal(
+    parseDraftCal(
+      localStorage.getItem('archive_draft_cal')
+    )
+  )
 };
 
 /* ═════════════════════════════
@@ -134,7 +146,8 @@ function readLocalPrivate() {
     baseFolder:
       localStorage.getItem('archive_base_folder') || '',
     mine: g('archive_my_school', 'null'),
-    comparisons: g('archive_compare_schools', '[]')
+    comparisons: g('archive_compare_schools', '[]'),
+    draftCal: g('archive_draft_cal', 'null')
   };
 }
 
@@ -201,6 +214,13 @@ function mergeCloudWithLocal(cloud, local) {
     (Array.isArray(c.comparisons) && c.comparisons.length)
       ? c.comparisons
       : (Array.isArray(l.comparisons) ? l.comparisons : []);
+
+  merged.draftCal = JSON.stringify(
+    mergeDraftCal(
+      parseDraftCal(c.draftCal),
+      parseDraftCal(l.draftCal)
+    )
+  );
 
   return merged;
 }
@@ -269,6 +289,13 @@ function persistLocal() {
     'archive_base_folder',
     state.baseFolder || '기본 폴더'
   );
+
+  localStorage.setItem(
+    'archive_draft_cal',
+    JSON.stringify(
+      state.draftCal || normalizeDraftCal(null)
+    )
+  );
 }
 
 function cloudPayload() {
@@ -285,6 +312,9 @@ function cloudPayload() {
     menuMemos: state.menuMemos || {},
     reportNote: state.reportNote || '',
     baseFolder: state.baseFolder || '기본 폴더',
+    draftCal: JSON.stringify(
+      state.draftCal || normalizeDraftCal(null)
+    ),
     updatedAt: new Date().toISOString()
   };
 }
@@ -370,6 +400,11 @@ function applyCloudData(d) {
 
   state.baseFolder =
     d.baseFolder || '기본 폴더';
+
+  state.draftCal =
+    normalizeDraftCal(
+      parseDraftCal(d.draftCal)
+    );
 
   persistLocal();
 }
@@ -1958,8 +1993,8 @@ function shell() {
           "
         >
 
-          <span class="soon-badge">
-            🗓 특일 캘린더 · 초안 식단 보드 업데이트 예정
+          <span class="soon-badge ${soriBetaOn() ? '' : 'hidden'}">
+            ✨ NEW: ⭐ 추천식단 탭에 특일·학사일정 초안 식단 캘린더 오픈!
           </span>
 
           <div class="school-pill">
@@ -2083,7 +2118,7 @@ function shell() {
           }"
           data-tab="scrap"
         >
-          📌 스크랩북
+          ${soriBetaOn() ? '⭐ 추천식단' : '📌 스크랩북'}
         </button>
 
       </div>
@@ -3576,7 +3611,16 @@ async function analyze() {
 
     setStatus(
       `${targets.length}개교의 실제 급식 ${state.loaded.length}일을 불러왔고, ` +
-      `'${esc(keyword)}'가 포함된 ${matches.meals.length}일을 찾았습니다.`
+      `'${esc(keyword)}'가 포함된 ${matches.meals.length}일을 찾았습니다.` +
+      (
+        state.loaded.length === 0 &&
+        (state.mealCode === '1' || state.mealCode === '3')
+          ? `<br>⚠️ 지금 <b>식사 구분</b>이 ` +
+            `<b>${state.mealCode === '1' ? '조식' : '석식'}</b>으로 되어 있어요. ` +
+            `조식·석식은 나이스에 공개하지 않는 학교가 많으니, ` +
+            `<b>'중식'</b>으로 바꿔 다시 조회해보세요.`
+          : ''
+      )
     );
 
     renderResults(
@@ -4284,7 +4328,12 @@ function mealCard(
                 .map(
                   d => d.name
                 )
-                .join(' / ')
+                .join(' / ') +
+              '\n※ ' +
+              dkey +
+              ' · ' +
+              m.school.schoolName +
+              (m.mealName ? ' · ' + m.mealName : '')
             )
           }"
         >
@@ -9526,3 +9575,909 @@ function applySoriProfileMine(p){try{
 }catch(_){}}
 window.addEventListener('sori-ready',e=>applySoriProfileMine(e.detail&&e.detail.profile));
 if(window.SORI)applySoriProfileMine(window.SORI.profile);
+
+/* ═════════════════════════════════════════════
+   ⭐ 추천식단: 초안 식단 캘린더
+   (특일·학사일정 + 스크랩·복붙 식단 배치)
+═════════════════════════════════════════════ */
+
+/* ── 2차 연수 공개 전 베타 게이트 ──
+   · 관리자(김소리) 계정은 항상 해제
+   · 수강생은 ?beta=SORI-2ND 링크로 접속하면 이 브라우저에서 해제 */
+const BETA2_CODE = 'SORI-2ND';
+const BETA2_ADMIN = 'thfl4811@gmail.com';
+
+function soriBetaOn() {
+  if (user && user.email === BETA2_ADMIN) return true;
+  return localStorage.getItem('archive_beta2') === BETA2_CODE;
+}
+
+try {
+  const _q = new URLSearchParams(location.search);
+  if (_q.get('beta') === BETA2_CODE) {
+    localStorage.setItem('archive_beta2', BETA2_CODE);
+  }
+} catch (_) {}
+
+/* ── 데이터 정규화·병합 ── */
+function normalizeDraftCal(v) {
+  const o = v && typeof v === 'object' ? v : {};
+  return {
+    meals: (o.meals && typeof o.meals === 'object') ? o.meals : {},
+    custom: Array.isArray(o.custom) ? o.custom : [],
+    neis: (o.neis && typeof o.neis === 'object') ? o.neis : {},
+    layers: {
+      학사일정: true, 세시풍속: true, 삼복: true,
+      법정기념일: true, 세계기념일: true, 절기: true,
+      ...(o.layers || {})
+    }
+  };
+}
+
+function parseDraftCal(v) {
+  if (!v) return null;
+  if (typeof v === 'string') {
+    try { return JSON.parse(v); } catch { return null; }
+  }
+  return v;
+}
+
+function mergeDraftCal(c, l) {
+  const C = normalizeDraftCal(c);
+  const Lc = normalizeDraftCal(l);
+  return {
+    meals: { ...Lc.meals, ...C.meals },
+    custom: [
+      ...C.custom,
+      ...Lc.custom.filter(
+        x => x && x.id && !C.custom.some(y => y && y.id === x.id)
+      )
+    ],
+    neis: { ...Lc.neis, ...C.neis },
+    layers: { ...Lc.layers, ...C.layers }
+  };
+}
+
+/* ── 보기 모드 (스크랩북 ↔ 캘린더) ── */
+let recViewMode =
+  localStorage.getItem('archive_rec_view') || 'cal';
+
+try {
+  if (
+    new URLSearchParams(location.search).get('view') === 'recommend' &&
+    soriBetaOn()
+  ) {
+    state.tab = 'scrap';
+    recViewMode = 'cal';
+  }
+} catch (_) {}
+
+function setRecView(mode) {
+  recViewMode = mode;
+  localStorage.setItem('archive_rec_view', mode);
+  renderScrapbook();
+}
+
+function recToggleHTML() {
+  return `
+    <div class="row" style="gap:6px;margin-bottom:14px;flex-wrap:wrap">
+      <button class="btn ${recViewMode === 'cal' ? '' : 'ghost'}" data-rec-view="cal">
+        🗓️ 초안 식단 캘린더
+      </button>
+      <button class="btn ${recViewMode === 'scrap' ? '' : 'ghost'}" data-rec-view="scrap">
+        📌 스크랩북
+      </button>
+    </div>
+  `;
+}
+
+function bindRecToggle() {
+  $$('[data-rec-view]').forEach(b => {
+    b.onclick = () => setRecView(b.dataset.recView);
+  });
+}
+
+/* renderScrapbook을 감싸서 보기 모드 분기 + 토글 유지 */
+const _origRenderScrapbook = renderScrapbook;
+renderScrapbook = function () {
+  if (!soriBetaOn()) {
+    _origRenderScrapbook();
+    return;
+  }
+  if (recViewMode === 'cal') {
+    renderDraftCal();
+    return;
+  }
+  _origRenderScrapbook();
+  const c = $('#controls');
+  if (c) {
+    c.insertAdjacentHTML('afterbegin', recToggleHTML());
+    bindRecToggle();
+  }
+};
+
+/* ── 캘린더 상태 ── */
+const calView = {
+  ym: (() => {
+    const saved = localStorage.getItem('archive_cal_ym');
+    if (saved && /^\d{4}-\d{2}$/.test(saved)) return saved;
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() + 1); /* 기본: 다음 달 */
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  })()
+};
+
+function calSetYM(ym) {
+  calView.ym = ym;
+  localStorage.setItem('archive_cal_ym', ym);
+  renderDraftCal();
+}
+
+function calShiftMonth(delta) {
+  const [y, m] = calView.ym.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  calSetYM(
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  );
+}
+
+/* ── 특정 날짜의 일정 목록 ── */
+const WEEK_KR = ['일', '월', '화', '수', '목', '금', '토'];
+
+/* 이 달의 예상 급식일 수 계산:
+   평일 − 공휴일 − 학사일정 휴업일(나이스 offDay·방학류 직접 일정) */
+function calMealDayCount(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  const dc = state.draftCal;
+  const offRe = /방학|휴업|재량|휴교|개교기념/;
+  let count = 0;
+  let neisApplied = !!(dc.neis[ym] && dc.neis[ym].length);
+
+  for (let day = 1; day <= lastDay; day++) {
+    const dow = new Date(y, m - 1, day).getDay();
+    if (dow === 0 || dow === 6) continue;
+
+    const ds = `${ym}-${String(day).padStart(2, '0')}`;
+
+    const holiday =
+      (SPECIAL_DAYS[ds] || []).some(e => e.off);
+    if (holiday) continue;
+
+    const neisOff =
+      (dc.neis[ym] || []).some(e => e.date === ds && e.offDay);
+    if (neisOff) continue;
+
+    const customOff =
+      dc.custom.some(e => e && e.date === ds && offRe.test(e.name));
+    if (customOff) continue;
+
+    count++;
+  }
+
+  return { count, neisApplied };
+}
+
+function calEventsFor(dateStr) {
+  const dc = state.draftCal;
+  const out = [];
+
+  (SPECIAL_DAYS[dateStr] || []).forEach(e => {
+    if (dc.layers[e.cat]) {
+      out.push({ name: e.name, cat: e.cat, src: 'built' });
+    }
+  });
+
+  if (dc.layers['학사일정']) {
+    const ym = dateStr.slice(0, 7);
+    (dc.neis[ym] || []).forEach(e => {
+      if (e.date === dateStr) {
+        out.push({
+          name: e.name, cat: '학사일정',
+          src: 'neis', offDay: !!e.offDay
+        });
+      }
+    });
+    dc.custom.forEach(e => {
+      if (e && e.date === dateStr) {
+        out.push({
+          name: e.name, cat: '학사일정',
+          src: 'custom', id: e.id
+        });
+      }
+    });
+  }
+
+  return out;
+}
+
+function calBadge(ev, small = true) {
+  const meta = SPECIAL_CATS[ev.cat] || SPECIAL_CATS['학사일정'];
+  return `
+    <span
+      class="cal-ev ${small ? 'small' : ''}"
+      style="background:${meta.bg};color:${meta.color}"
+      title="${esc(ev.cat)}${ev.src === 'neis' ? ' · 나이스' : ev.src === 'custom' ? ' · 직접 등록' : ''}"
+    >${ev.offDay ? '🏖 ' : ''}${esc(ev.name)}</span>
+  `;
+}
+
+/* ── 캘린더 렌더 ── */
+function renderDraftCal() {
+  const c = $('#controls');
+  if (!c) return;
+
+  $('#results').innerHTML = '';
+  $('#status').innerHTML = '';
+
+  const [y, m] = calView.ym.split('-').map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  const firstDow = new Date(y, m - 1, 1).getDay();
+  const todayStr = dateISO(new Date());
+  const dc = state.draftCal;
+
+  const layerChips = Object.keys(SPECIAL_CATS).map(cat => {
+    const on = dc.layers[cat];
+    const meta = SPECIAL_CATS[cat];
+    return `
+      <button
+        class="chip folder-chip ${on ? '' : 'cal-layer-off'}"
+        data-cal-layer="${esc(cat)}"
+        style="${on ? `background:${meta.bg};color:${meta.color};border-color:${meta.color}44` : ''}"
+      >${on ? '✔' : '－'} ${esc(cat)}</button>
+    `;
+  }).join('');
+
+  let cells = '';
+  for (let i = 0; i < firstDow; i++) {
+    cells += `<div class="cal-cell empty"></div>`;
+  }
+
+  for (let day = 1; day <= lastDay; day++) {
+    const ds = `${calView.ym}-${String(day).padStart(2, '0')}`;
+    const dow = new Date(y, m - 1, day).getDay();
+    const evs = calEventsFor(ds);
+    const shown = evs.slice(0, 3);
+    const more = evs.length - shown.length;
+    const meal = dc.meals[ds];
+
+    cells += `
+      <div
+        class="cal-cell ${ds === todayStr ? 'today' : ''}"
+        data-cal-day="${ds}"
+      >
+        <div class="cal-daynum ${dow === 0 ? 'sun' : dow === 6 ? 'sat' : ''}">
+          ${day}
+        </div>
+        <div class="cal-evs">
+          ${shown.map(e => calBadge(e)).join('')}
+          ${more > 0 ? `<span class="cal-ev small cal-more">+${more}</span>` : ''}
+        </div>
+        ${
+          meal && meal.menus && meal.menus.length
+            ? `<div class="cal-meal">🍱 ${esc(meal.menus.join(' / '))}</div>`
+            : ''
+        }
+      </div>
+    `;
+  }
+
+  const mineOk =
+    state.mine && state.mine.officeCode !== 'UPLOAD';
+
+  const mdc = calMealDayCount(calView.ym);
+
+  c.innerHTML = `
+    ${recToggleHTML()}
+    <section class="panel">
+      <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <div class="row" style="gap:6px">
+          <button class="btn ghost small" id="calPrev">◀</button>
+          <h2 style="margin:0;min-width:130px;text-align:center">
+            ${y}년 ${m}월
+          </h2>
+          <button class="btn ghost small" id="calNext">▶</button>
+          <button class="btn ghost small" id="calNextMonth">다음 달</button>
+        </div>
+        <span
+          class="cal-count"
+          title="주말·공휴일·학사일정 휴업일(방학·재량휴업 등)을 뺀 예상 급식일이에요.${mdc.neisApplied ? '' : ' 나이스 학사일정을 불러오면 방학·재량휴업일까지 반영돼요.'}"
+        >
+          🍚 급식"소리"함이 분석한 이번 달 급식일은 <b>${mdc.count}일</b>이에요!${mdc.neisApplied ? '' : ' <small>(학사일정 반영 전)</small>'}
+        </span>
+        <div class="row" style="gap:6px;flex-wrap:wrap">
+          <button class="btn ghost small" id="calNeisLoad" ${mineOk ? '' : 'disabled'}>
+            🏫 나이스 학사일정 불러오기
+          </button>
+          <button class="btn ghost small" id="calSchedPaste">
+            📋 학사일정 붙여넣기
+          </button>
+          <button class="btn ghost small" id="calCopyMonth">
+            📄 월 식단 전체 복사
+          </button>
+          <a
+            class="btn ghost small"
+            href="?view=recommend"
+            target="_blank"
+            style="text-decoration:none"
+            title="캘린더만 새 창으로 열어 아카이브 조회 창과 나란히 작업할 수 있어요"
+          >↗ 새 창</a>
+        </div>
+      </div>
+
+      <div class="chips" style="margin-top:12px">
+        ${layerChips}
+      </div>
+
+      <p class="help" style="margin-top:10px">
+        날짜 칸을 클릭하면 <b>식단 초안</b>과 <b>일정</b>을 편집할 수 있어요.
+        절기·명절·기념일은 월력요항(한국천문연구원) 기준으로 내장되어 있고(${SPECIAL_RANGE.from.slice(0, 4)}~${SPECIAL_RANGE.to.slice(0, 4)}년),
+        학사일정은 나이스에서 불러오거나 직접 등록·수정할 수 있어요.
+        ${mineOk ? '' : '⚠️ 나이스 학사일정은 나이스 연동 학교에서만 불러올 수 있어요.'}
+      </p>
+
+      <div class="cal-grid" style="margin-top:12px">
+        ${WEEK_KR.map((w, i) => `
+          <div class="cal-head ${i === 0 ? 'sun' : i === 6 ? 'sat' : ''}">${w}</div>
+        `).join('')}
+        ${cells}
+      </div>
+    </section>
+  `;
+
+  bindRecToggle();
+
+  $('#calPrev').onclick = () => calShiftMonth(-1);
+  $('#calNext').onclick = () => calShiftMonth(1);
+
+  $('#calNextMonth').onclick = () => {
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() + 1);
+    calSetYM(
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    );
+  };
+
+  $$('[data-cal-layer]').forEach(b => {
+    b.onclick = () => {
+      const cat = b.dataset.calLayer;
+      state.draftCal.layers[cat] = !state.draftCal.layers[cat];
+      persist();
+      renderDraftCal();
+    };
+  });
+
+  $$('[data-cal-day]').forEach(cell => {
+    cell.onclick = () => openCalDayModal(cell.dataset.calDay);
+  });
+
+  $('#calNeisLoad').onclick = loadNeisSchedule;
+  $('#calSchedPaste').onclick = openSchedPasteModal;
+  $('#calCopyMonth').onclick = copyCalMonth;
+}
+
+/* ── 나이스 학사일정 불러오기 ── */
+async function loadNeisSchedule() {
+  const s = state.mine;
+  if (!s || s.officeCode === 'UPLOAD') {
+    alert('나이스 연동 학교가 설정된 경우에만 학사일정을 불러올 수 있어요.');
+    return;
+  }
+
+  const ym = calView.ym;
+  const [y, m] = ym.split('-').map(Number);
+  const from = `${ym}-01`;
+  const to = `${ym}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
+
+  const btn = $('#calNeisLoad');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading"></span>불러오는 중';
+  }
+
+  try {
+    const r = await fetch(
+      `/api/schedule?office=${encodeURIComponent(s.officeCode)}` +
+      `&school=${encodeURIComponent(s.schoolCode)}` +
+      `&from=${from}&to=${to}`
+    );
+    const rows = await r.json();
+
+    if (!r.ok) {
+      throw Error(rows.error || '학사일정 조회 실패');
+    }
+
+    state.draftCal.neis[ym] = rows.map(x => ({
+      date:
+        `${String(x.date).slice(0, 4)}-` +
+        `${String(x.date).slice(4, 6)}-` +
+        `${String(x.date).slice(6, 8)}`,
+      name: x.name,
+      offDay: !!x.offDay
+    }));
+
+    persist();
+    renderDraftCal();
+
+    alert(
+      rows.length
+        ? `🏫 ${m}월 학사일정 ${rows.length}건을 불러왔어요.\n` +
+          `(나이스에 등록된 일정 기준이라 실제와 다를 수 있어요. ` +
+          `틀린 일정은 날짜를 클릭해 직접 추가로 보완해주세요.)`
+        : `${m}월에 나이스에 등록된 학사일정이 없어요.\n` +
+          `날짜를 클릭해 직접 추가하거나 '학사일정 붙여넣기'를 이용해보세요.`
+    );
+
+  } catch (e) {
+    alert(e.message);
+    renderDraftCal();
+  }
+}
+
+/* ── 월 식단 전체 복사 ── */
+function copyCalMonth() {
+  const [y, m] = calView.ym.split('-').map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  const lines = [];
+
+  for (let day = 1; day <= lastDay; day++) {
+    const ds = `${calView.ym}-${String(day).padStart(2, '0')}`;
+    const meal = state.draftCal.meals[ds];
+    if (meal && meal.menus && meal.menus.length) {
+      const dow = WEEK_KR[new Date(y, m - 1, day).getDay()];
+      lines.push(`${m}/${day}(${dow}) ${meal.menus.join(' / ')}`);
+    }
+  }
+
+  if (!lines.length) {
+    alert('이 달에 배치된 식단 초안이 아직 없어요.');
+    return;
+  }
+
+  navigator.clipboard.writeText(lines.join('\n'));
+  alert(`📄 ${lines.length}일치 식단 초안을 복사했어요.`);
+}
+
+/* ── ' / ' 형식 텍스트 ↔ 메뉴 배열 ── */
+function parseMenuText(text) {
+  return String(text || '')
+    .split(/\n+/)
+    /* 복사 시 붙는 출처 줄("※ 2026-09-12 · 학교명")은 메뉴로 취급하지 않음 */
+    .filter(line => {
+      const t = line.trim();
+      if (!t) return false;
+      if (t.startsWith('※')) return false;
+      if (/^\d{4}-\d{2}-\d{2}/.test(t) && t.includes('·')) return false;
+      return true;
+    })
+    .join(' / ')
+    .split(/\s*\/\s*/)
+    .map(x => x.trim())
+    .filter(Boolean);
+}
+
+/* ── 날짜 상세 모달 ── */
+function openCalDayModal(dateStr) {
+  const m = $('#modal');
+  const [y, mo, day] = dateStr.split('-').map(Number);
+  const dow = WEEK_KR[new Date(y, mo - 1, day).getDay()];
+  const evs = calEventsFor(dateStr);
+  const meal = state.draftCal.meals[dateStr];
+
+  const mealScraps = state.scraps.filter(
+    sc => sc && Array.isArray(sc.menus) && sc.menus.length
+  );
+
+  const refSchools = [
+    ...(state.mine ? [state.mine] : []),
+    ...(state.comparisons || [])
+  ];
+
+  m.innerHTML = `
+    <div class="modal" id="calDayModal">
+      <div class="modal-card">
+        <div class="row" style="justify-content:space-between">
+          <h2>🗓️ ${mo}월 ${day}일 (${dow})</h2>
+          <button class="btn ghost small" id="calDayClose">닫기 ✕</button>
+        </div>
+
+        <div class="field" style="margin:12px 0 0">
+          <label>이 날의 일정</label>
+          <div class="chips" id="calDayEvs">
+            ${
+              evs.length
+                ? evs.map((e, i) => `
+                    <span class="row" style="gap:3px">
+                      ${calBadge(e, false)}
+                      ${
+                        e.src === 'custom'
+                          ? `<button class="btn ghost small" data-del-ev="${esc(e.id)}" title="삭제">✕</button>`
+                          : ''
+                      }
+                    </span>
+                  `).join('')
+                : `<span class="help" style="margin:0">등록된 일정이 없어요.</span>`
+            }
+          </div>
+          <div class="row" style="margin-top:8px;gap:6px">
+            <input
+              id="calNewEv"
+              placeholder="학사일정 직접 추가 (예: 중간고사, 현장체험학습)"
+              style="flex:1;padding:10px 12px;border:1px solid var(--line);border-radius:11px"
+            >
+            <button class="btn small" id="calAddEv">＋ 추가</button>
+          </div>
+        </div>
+
+        <div class="field" style="margin:16px 0 0">
+          <label>🍱 식단 초안</label>
+          <textarea
+            id="calMenus"
+            rows="3"
+            style="width:100%"
+            placeholder="찹쌀밥 / 쇠고기미역국 / LA갈비찜 / 파프리카잡채 / 배추김치 / 과일주스"
+          >${esc(meal && meal.menus ? meal.menus.join(' / ') : '')}</textarea>
+          <p class="help">
+            메뉴는 <b>/</b> 로 구분해요. 아카이브·조회 화면의 '복사' 버튼으로 복사한
+            식단을 그대로 붙여넣으면 돼요. 복사할 때 함께 붙는 날짜 출처 줄(※)은
+            자동으로 무시되니 그대로 두셔도 돼요.
+          </p>
+          <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">
+            <button class="btn small" id="calMealSave">💾 저장</button>
+            <button class="btn ghost small" id="calMealCopy">📋 복사</button>
+            <button class="btn ghost small" id="calMealClear">🗑 비우기</button>
+          </div>
+        </div>
+
+        ${
+          mealScraps.length
+            ? `
+              <div class="field" style="margin:16px 0 0">
+                <label>📌 스크랩에서 가져오기</label>
+                <div class="row" style="gap:6px">
+                  <select id="calScrapSel" style="flex:1;padding:10px;border:1px solid var(--line);border-radius:11px">
+                    ${mealScraps.map(sc => `
+                      <option value="${esc(sc.id)}">
+                        ${esc(sc.title || sc.menus.slice(0, 3).join('·'))}
+                        ${sc.school ? ` — ${esc(sc.school)}` : ''}
+                        ${sc.date ? ` (${esc(sc.date)})` : ''}
+                      </option>
+                    `).join('')}
+                  </select>
+                  <button class="btn small" id="calScrapUse">넣기</button>
+                </div>
+              </div>
+            `
+            : ''
+        }
+
+        ${
+          refSchools.length
+            ? `
+              <details style="margin:16px 0 0">
+                <summary style="cursor:pointer;font-weight:900">
+                  📖 참고 조회 — 내 학교·비교학교 실제 식단 보기
+                </summary>
+                <div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap">
+                  <select id="calRefSchool" style="padding:10px;border:1px solid var(--line);border-radius:11px">
+                    ${refSchools.map((s, i) => `
+                      <option value="${i}">
+                        ${esc(s.schoolName)}${i === 0 && state.mine ? ' (내 학교)' : ''}
+                      </option>
+                    `).join('')}
+                  </select>
+                  <input
+                    type="month"
+                    id="calRefMonth"
+                    value="${(() => {
+                      const d = new Date(y - 1, mo - 1, 1);
+                      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                    })()}"
+                    style="padding:9px;border:1px solid var(--line);border-radius:11px"
+                  >
+                  <button class="btn ghost small" id="calRefGo">불러오기</button>
+                </div>
+                <p class="help">
+                  기본으로 작년 같은 달이 선택돼요. 식사 구분은 조회 화면 설정
+                  (${state.mealCode === '1' ? '조식' : state.mealCode === '3' ? '석식' : '중식'})을 따라요.
+                </p>
+                <div id="calRefList" style="margin-top:8px;max-height:260px;overflow:auto"></div>
+              </details>
+            `
+            : ''
+        }
+
+      </div>
+    </div>
+  `;
+
+  const close = () => { m.innerHTML = ''; };
+
+  $('#calDayClose').onclick = close;
+  $('#calDayModal').onclick = e => {
+    if (e.target.id === 'calDayModal') close();
+  };
+
+  /* 일정 삭제 (직접 등록만) */
+  $$('[data-del-ev]').forEach(b => {
+    b.onclick = () => {
+      state.draftCal.custom =
+        state.draftCal.custom.filter(x => x.id !== b.dataset.delEv);
+      persist();
+      renderDraftCal();
+      openCalDayModal(dateStr);
+    };
+  });
+
+  /* 일정 직접 추가 */
+  const addEv = () => {
+    const name = $('#calNewEv').value.trim();
+    if (!name) return;
+    state.draftCal.custom.push({
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      date: dateStr,
+      name
+    });
+    persist();
+    renderDraftCal();
+    openCalDayModal(dateStr);
+  };
+  $('#calAddEv').onclick = addEv;
+  $('#calNewEv').onkeydown = e => {
+    if (e.key === 'Enter') addEv();
+  };
+
+  /* 식단 초안 저장·복사·비우기 */
+  $('#calMealSave').onclick = () => {
+    const menus = parseMenuText($('#calMenus').value);
+    if (menus.length) {
+      state.draftCal.meals[dateStr] = { menus };
+    } else {
+      delete state.draftCal.meals[dateStr];
+    }
+    persist();
+    renderDraftCal();
+    close();
+  };
+
+  $('#calMealCopy').onclick = () => {
+    const menus = parseMenuText($('#calMenus').value);
+    if (!menus.length) {
+      alert('복사할 메뉴가 없어요.');
+      return;
+    }
+    navigator.clipboard.writeText(menus.join(' / '));
+    alert('복사했습니다.');
+  };
+
+  $('#calMealClear').onclick = () => {
+    $('#calMenus').value = '';
+  };
+
+  /* 스크랩에서 가져오기 */
+  const scrapUse = $('#calScrapUse');
+  if (scrapUse) {
+    scrapUse.onclick = () => {
+      const sc = mealScraps.find(
+        x => x.id === $('#calScrapSel').value
+      );
+      if (sc) {
+        $('#calMenus').value = sc.menus.join(' / ');
+      }
+    };
+  }
+
+  /* 참고 조회 */
+  const refGo = $('#calRefGo');
+  if (refGo) {
+    refGo.onclick = async () => {
+      const s = refSchools[+$('#calRefSchool').value];
+      const rym = $('#calRefMonth').value;
+      if (!s || !rym) return;
+
+      const [ry, rm] = rym.split('-').map(Number);
+      const from = `${rym}-01`;
+      const to = `${rym}-${String(new Date(ry, rm, 0).getDate()).padStart(2, '0')}`;
+
+      const list = $('#calRefList');
+      list.innerHTML =
+        `<div class="help"><span class="loading"></span>불러오는 중...</div>`;
+
+      try {
+        const rows = await fetchMeals(s, from, to);
+        if (!rows.length) {
+          list.innerHTML =
+            `<div class="help">이 달에는 급식 자료가 없어요.</div>`;
+          return;
+        }
+
+        list.innerHTML = rows.map(r => {
+          const menus = (r.dishes || '')
+            .split(/<br\s*\/?>/i)
+            .map(x =>
+              x.replace(/\([^)]*\)/g, '')
+                .replace(/[\d.]+$/g, '')
+                .trim()
+            )
+            .filter(Boolean);
+          const dd = String(r.date);
+          const rday = +dd.slice(6, 8);
+          const rdow = WEEK_KR[
+            new Date(+dd.slice(0, 4), +dd.slice(4, 6) - 1, rday).getDay()
+          ];
+          const joined = menus.join(' / ');
+          const src =
+            `${dd.slice(0, 4)}-${dd.slice(4, 6)}-${dd.slice(6, 8)}` +
+            ` · ${s.schoolName}`;
+          return `
+            <div class="kw-day" style="gap:8px">
+              <span style="flex:1;min-width:0">
+                <b>${rm}/${rday}(${rdow})</b> ${esc(joined)}
+              </span>
+              <span class="row" style="gap:4px;flex:none">
+                <button class="btn small" data-ref-use="${esc(joined)}">넣기</button>
+                <button class="btn ghost small" data-ref-copy="${esc(joined + '\n※ ' + src)}">복사</button>
+              </span>
+            </div>
+          `;
+        }).join('');
+
+        $$('[data-ref-use]').forEach(b => {
+          b.onclick = () => {
+            $('#calMenus').value = b.dataset.refUse;
+            $('#calMenus').scrollIntoView({ behavior: 'smooth', block: 'center' });
+          };
+        });
+        $$('[data-ref-copy]').forEach(b => {
+          b.onclick = () => {
+            navigator.clipboard.writeText(b.dataset.refCopy);
+            alert('복사했습니다.');
+          };
+        });
+
+      } catch (e) {
+        list.innerHTML =
+          `<div class="help">⚠️ ${esc(e.message)}</div>`;
+      }
+    };
+  }
+}
+
+/* ── 학사일정 텍스트 붙여넣기 인식 ── */
+function parseSchedText(text, baseYear) {
+  const out = [];
+
+  String(text || '').split(/\n+/).forEach(line => {
+    const t = line.trim();
+    if (!t) return;
+
+    const re =
+      /(?:(\d{4})\s*[.\-\/년]\s*)?(\d{1,2})\s*[.\-\/월]\s*(\d{1,2})\s*일?\s*(?:[~\-–]\s*(?:(\d{4})\s*[.\-\/년]\s*)?(?:(\d{1,2})\s*[.\-\/월]\s*)?(\d{1,2})\s*일?)?/;
+
+    const mt = t.match(re);
+    if (!mt) return;
+
+    const name = t
+      .replace(mt[0], ' ')
+      .replace(/^[\s:·.\-–~,()]+|[\s:·.\-–~,()]+$/g, '')
+      .trim();
+    if (!name) return;
+
+    const y1 = mt[1] ? +mt[1] : baseYear;
+    const mo1 = +mt[2];
+    const d1 = +mt[3];
+
+    const y2 = mt[4] ? +mt[4] : y1;
+    const mo2 = mt[5] ? +mt[5] : mo1;
+    const d2 = mt[6] ? +mt[6] : d1;
+
+    if (mo1 < 1 || mo1 > 12 || d1 < 1 || d1 > 31) return;
+
+    const s = new Date(y1, mo1 - 1, d1);
+    const e = new Date(y2, mo2 - 1, d2);
+    if (isNaN(s) || isNaN(e) || e < s) return;
+    if ((e - s) / 86400000 > 60) return;
+
+    for (let dd = new Date(s); dd <= e; dd.setDate(dd.getDate() + 1)) {
+      out.push({ date: dateISO(dd), name });
+    }
+  });
+
+  return out;
+}
+
+function openSchedPasteModal() {
+  const m = $('#modal');
+  const baseYear = +calView.ym.slice(0, 4);
+
+  m.innerHTML = `
+    <div class="modal" id="schedPasteModal">
+      <div class="modal-card">
+        <div class="row" style="justify-content:space-between">
+          <h2>📋 학사일정 붙여넣기</h2>
+          <button class="btn ghost small" id="spClose">닫기 ✕</button>
+        </div>
+        <p class="help">
+          학사일정 PDF·한글 문서에서 복사한 텍스트를 붙여넣으면 날짜와 일정을
+          자동으로 인식해요. 한 줄에 일정 하나씩이면 가장 잘 인식돼요.<br>
+          지원 예시: <b>9/12 중간고사</b> · <b>10월 20일 ~ 10월 23일 수학여행</b> ·
+          <b>2026-11-05 개교기념일</b><br>
+          연도가 없는 날짜는 지금 보고 있는 달력의 연도(<b>${baseYear}년</b>)로 등록돼요.
+        </p>
+        <textarea id="spText" rows="8" style="width:100%;margin-top:8px"
+          placeholder="9/12 중간고사&#10;10월 20일 ~ 10월 23일 수학여행"></textarea>
+        <div class="row" style="gap:6px;margin-top:10px">
+          <button class="btn small" id="spParse">인식하기</button>
+        </div>
+        <div id="spPreview" style="margin-top:12px"></div>
+      </div>
+    </div>
+  `;
+
+  const close = () => { m.innerHTML = ''; };
+  $('#spClose').onclick = close;
+  $('#schedPasteModal').onclick = e => {
+    if (e.target.id === 'schedPasteModal') close();
+  };
+
+  $('#spParse').onclick = () => {
+    const items = parseSchedText($('#spText').value, baseYear);
+    const pv = $('#spPreview');
+
+    if (!items.length) {
+      pv.innerHTML =
+        `<div class="warn">날짜를 인식하지 못했어요. 한 줄에 "날짜 + 일정 이름" 형식으로 정리해서 다시 붙여넣어 보세요.</div>`;
+      return;
+    }
+
+    pv.innerHTML = `
+      <p class="help" style="margin:0 0 6px">
+        ${items.length}건을 인식했어요. 등록할 일정만 체크하세요.
+      </p>
+      <div style="max-height:240px;overflow:auto">
+        ${items.map((it, i) => `
+          <label class="kw-day" style="cursor:pointer;gap:8px">
+            <input type="checkbox" data-sp-item="${i}" checked>
+            <span style="flex:1"><b>${esc(it.date)}</b> ${esc(it.name)}</span>
+          </label>
+        `).join('')}
+      </div>
+      <button class="btn" id="spRegister" style="margin-top:10px">
+        ✅ 선택한 일정 등록
+      </button>
+    `;
+
+    $('#spRegister').onclick = () => {
+      const picked = $$('[data-sp-item]')
+        .filter(cb => cb.checked)
+        .map(cb => items[+cb.dataset.spItem]);
+
+      if (!picked.length) {
+        alert('선택된 일정이 없어요.');
+        return;
+      }
+
+      picked.forEach(it => {
+        const dup = state.draftCal.custom.some(
+          x => x.date === it.date && x.name === it.name
+        );
+        if (!dup) {
+          state.draftCal.custom.push({
+            id:
+              Date.now().toString(36) +
+              Math.random().toString(36).slice(2, 6),
+            date: it.date,
+            name: it.name
+          });
+        }
+      });
+
+      persist();
+      close();
+      renderDraftCal();
+      alert(`✅ 학사일정 ${picked.length}건을 등록했어요.`);
+    };
+  };
+}
