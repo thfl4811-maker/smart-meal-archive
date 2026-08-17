@@ -9654,6 +9654,7 @@ function normalizeDraftCal(v) {
     meals: (o.meals && typeof o.meals === 'object') ? o.meals : {},
     custom: Array.isArray(o.custom) ? o.custom : [],
     neis: (o.neis && typeof o.neis === 'object') ? o.neis : {},
+    offOverride: (o.offOverride && typeof o.offOverride === 'object') ? o.offOverride : {},
     layers: {
       학사일정: true, 세시풍속: true, 삼복: true,
       법정기념일: true, 세계기념일: true, 절기: true,
@@ -9682,6 +9683,7 @@ function mergeDraftCal(c, l) {
       )
     ],
     neis: { ...Lc.neis, ...C.neis },
+    offOverride: { ...Lc.offOverride, ...C.offOverride },
     layers: { ...Lc.layers, ...C.layers }
   };
 }
@@ -9776,8 +9778,8 @@ const WEEK_KR = ['일', '월', '화', '수', '목', '금', '토'];
    평일 − 공휴일 − 학사일정 휴업일(나이스 offDay·방학류 직접 일정) */
 const CAL_OFF_RE = /방학|휴업|재량|휴교|개교기념/;
 
-/* 이 날이 미급식일(주말·공휴일·휴업일)인지 */
-function calIsOffDay(dateStr) {
+/* 자동 판정: 주말·공휴일·휴업일 */
+function calAutoOffDay(dateStr) {
   const dc = state.draftCal;
   const [y, mo, dd] = dateStr.split('-').map(Number);
   const dow = new Date(y, mo - 1, dd).getDay();
@@ -9789,6 +9791,14 @@ function calIsOffDay(dateStr) {
   return false;
 }
 
+/* 최종 판정: 수동 체크(offOverride)가 자동 판정보다 우선 */
+function calIsOffDay(dateStr) {
+  const ov = (state.draftCal.offOverride || {})[dateStr];
+  if (ov === true) return true;
+  if (ov === false) return false;
+  return calAutoOffDay(dateStr);
+}
+
 function calMealDayCount(ym) {
   const [y, m] = ym.split('-').map(Number);
   const lastDay = new Date(y, m, 0).getDate();
@@ -9798,23 +9808,8 @@ function calMealDayCount(ym) {
   let neisApplied = !!(dc.neis[ym] && dc.neis[ym].length);
 
   for (let day = 1; day <= lastDay; day++) {
-    const dow = new Date(y, m - 1, day).getDay();
-    if (dow === 0 || dow === 6) continue;
-
     const ds = `${ym}-${String(day).padStart(2, '0')}`;
-
-    const holiday =
-      (SPECIAL_DAYS[ds] || []).some(e => e.off);
-    if (holiday) continue;
-
-    const neisOff =
-      (dc.neis[ym] || []).some(e => e.date === ds && e.offDay);
-    if (neisOff) continue;
-
-    const customOff =
-      dc.custom.some(e => e && e.date === ds && offRe.test(e.name));
-    if (customOff) continue;
-
+    if (calIsOffDay(ds)) continue;
     count++;
   }
 
@@ -9823,6 +9818,11 @@ function calMealDayCount(ym) {
 
 /* 식단 초안 칸 순서: 밥 → 국 → 주찬 → 부찬 → 김치 → 후식 */
 const CAL_CAT_ORDER = ['rice', 'soup', 'main', 'side', 'kimchi', 'dessert'];
+
+const CAL_CAT_SHORT = {
+  rice: '밥', soup: '국', main: '주찬',
+  side: '부찬', kimchi: '김치', dessert: '후식'
+};
 
 function calMealCats(meal) {
   if (!meal) return {};
@@ -9930,11 +9930,14 @@ function renderDraftCal() {
         </div>
         ${
           meal && meal.menus && meal.menus.length
-            ? `<div class="cal-meal">🍱 ${esc(
-                CAL_CAT_ORDER
-                  .flatMap(k => calMealCats(meal)[k] || [])
-                  .join(' / ') || meal.menus.join(' / ')
-              )}</div>`
+            ? `<div class="cal-meal2">${
+                CAL_CAT_ORDER.map(k => {
+                  const arr = calMealCats(meal)[k] || [];
+                  return arr.length
+                    ? `<div class="cmr"><b>${CAL_CAT_SHORT[k]}</b><span>${esc(arr.join(', '))}</span></div>`
+                    : '';
+                }).join('')
+              }</div>`
             : ''
         }
       </div>
@@ -10189,6 +10192,25 @@ function openCalDayModal(dateStr) {
           </div>
         </div>
 
+        <label
+          class="row"
+          style="gap:8px;margin:14px 0 0;cursor:pointer;align-items:flex-start"
+        >
+          <input
+            type="checkbox"
+            id="calOffChk"
+            style="margin-top:2px"
+            ${calIsOffDay(dateStr) ? 'checked' : ''}
+          >
+          <span>
+            <b style="color:#b91c1c">🚫 미급식일로 표시</b>
+            <span class="help" style="display:block;margin-top:2px">
+              주말·공휴일·휴업일은 자동으로 표시돼요.
+              학교 상황(단축수업·행사 등)에 맞게 직접 켜고 끌 수 있어요.
+            </span>
+          </span>
+        </label>
+
         <div class="field" style="margin:16px 0 0">
           <label>🍱 식단 초안 — 밥 · 국 · 주찬 · 부찬 · 김치 · 후식 순</label>
           <textarea
@@ -10317,6 +10339,22 @@ function openCalDayModal(dateStr) {
   $('#calNewEv').onkeydown = e => {
     if (e.key === 'Enter') addEv();
   };
+
+  /* 미급식일 수동 체크 */
+  const offChk = $('#calOffChk');
+  if (offChk) {
+    offChk.onchange = () => {
+      const auto = calAutoOffDay(dateStr);
+      if (!state.draftCal.offOverride) state.draftCal.offOverride = {};
+      if (offChk.checked === auto) {
+        delete state.draftCal.offOverride[dateStr];
+      } else {
+        state.draftCal.offOverride[dateStr] = offChk.checked;
+      }
+      persist();
+      renderDraftCal();
+    };
+  }
 
   /* 붙여넣기 → 6칸 자동 분류 */
   const fillCats = menus => {

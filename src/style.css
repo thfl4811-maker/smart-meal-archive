@@ -269,3 +269,11 @@ textarea:focus{outline:none;border-color:#888}
 .cal-cat-row input{
   padding:9px 11px;border:1px solid var(--line);border-radius:9px;width:100%;
 }
+
+/* 캘린더 칸: 식단 라벨 줄 표시 */
+.cal-meal2{margin-top:auto;display:grid;gap:1px}
+.cmr{display:grid;grid-template-columns:26px 1fr;gap:3px;align-items:start;
+  background:#f7f8fb;border-radius:5px;padding:1px 4px;font-size:9.5px;line-height:1.35}
+.cmr b{color:#6b7280;font-weight:900}
+.cmr span{color:#172033;word-break:keep-all}
+@media(max-width:900px){.cmr{font-size:8.5px;grid-template-columns:22px 1fr}}
