@@ -10027,14 +10027,17 @@ function renderDraftCal() {
           ${more > 0 ? `<span class="cal-ev small cal-more">+${more}</span>` : ''}
         </div>
         ${
-          meal && meal.menus && meal.menus.length
+          meal && ((meal.menus && meal.menus.length) || (meal.extra && meal.extra.length))
             ? `<div class="cal-meal2">${
                 CAL_CAT_ORDER.map(k => {
                   const arr = calMealCats(meal)[k] || [];
                   return arr.length
                     ? `<div class="cmr"><b>${CAL_CAT_SHORT[k]}</b><span>${esc(arr.join(', '))}</span></div>`
                     : '';
-                }).join('')
+                }).join('') +
+                ((meal.extra || []).map(ex =>
+                  `<div class="cmr ex"><b>${esc((ex.label || '자율').slice(0, 3))}</b><span>${esc((ex.items || []).join(', '))}</span></div>`
+                ).join(''))
               }</div>${
                 meal.src
                   ? `<div class="cal-src">📎 ${esc(meal.src)}</div>`
@@ -10238,9 +10241,15 @@ function copyCalMonth() {
   for (let day = 1; day <= lastDay; day++) {
     const ds = `${calView.ym}-${String(day).padStart(2, '0')}`;
     const meal = state.draftCal.meals[ds];
-    if (meal && meal.menus && meal.menus.length) {
+    const all = meal
+      ? [
+          ...(meal.menus || []),
+          ...((meal.extra || []).flatMap(ex => ex.items || []))
+        ]
+      : [];
+    if (all.length) {
       const dow = WEEK_KR[new Date(y, m - 1, day).getDay()];
-      lines.push(`${m}/${day}(${dow}) ${meal.menus.join(' / ')}`);
+      lines.push(`${m}/${day}(${dow}) ${all.join(' / ')}`);
     }
   }
 
@@ -10320,7 +10329,12 @@ function printCalMonth() {
     const evs = calEventsFor(it.ds).map(e => esc(e.name)).join(', ');
     const meal = state.draftCal.meals[it.ds];
     const g = meal ? calMealCats(meal) : null;
-    return `<td class="${off ? 'off' : ''}"><div class="dn">${dd}${evs ? ` <em>${evs}</em>` : ''}</div>${g ? mealRows(g) : ''}${
+    const extraRows = meal
+      ? ((meal.extra || []).map(ex =>
+          `<div class="mr"><b>${esc((ex.label || '자율').slice(0, 3))}</b><span>${esc((ex.items || []).join(', '))}</span></div>`
+        ).join(''))
+      : '';
+    return `<td class="${off ? 'off' : ''}"><div class="dn">${dd}${evs ? ` <em>${evs}</em>` : ''}</div>${g ? mealRows(g) : ''}${extraRows}${
       meal && meal.src ? `<div class="src">📎 ${esc(meal.src)}</div>` : ''
     }</td>`;
   };
@@ -10388,8 +10402,11 @@ function openDupCheck() {
   for (let day = 1; day <= lastDay; day++) {
     const ds = `${calView.ym}-${String(day).padStart(2, '0')}`;
     const meal = state.draftCal.meals[ds];
-    if (meal && meal.menus) {
-      meal.menus.forEach(n => add(n, `${m}/${day}`));
+    if (meal) {
+      (meal.menus || []).forEach(n => add(n, `${m}/${day}`));
+      (meal.extra || []).forEach(ex =>
+        (ex.items || []).forEach(n => add(n, `${m}/${day}`))
+      );
     }
   }
 
@@ -10559,6 +10576,20 @@ function openCalDayModal(dateStr) {
               </div>
             `).join('')}
           </div>
+          <div id="calExtraWrap">
+            ${
+              ((meal && meal.extra) || []).map(ex => `
+                <div class="cal-cat-row cal-extra-row">
+                  <input class="ex-label" value="${esc(ex.label || '자율메뉴')}" placeholder="자율메뉴">
+                  <input class="ex-items" value="${esc((ex.items || []).join(' / '))}" placeholder="메뉴1 / 메뉴2">
+                  <button class="btn ghost small ex-del">✕</button>
+                </div>
+              `).join('')
+            }
+          </div>
+          <button class="btn ghost small" id="calExtraAdd" style="margin-top:6px">
+            ＋ 항목 추가 (자율메뉴·샐러드바 등)
+          </button>
           <div
             class="row"
             id="calSrcRow"
@@ -10709,6 +10740,33 @@ function openCalDayModal(dateStr) {
   const srcClear = $('#calSrcClear');
   if (srcClear) srcClear.onclick = () => setSrc('');
 
+  /* 추가 항목 (자율메뉴 등) */
+  const extraWrap = $('#calExtraWrap');
+  const bindExtraDel = () => {
+    $$('.ex-del').forEach(b => {
+      b.onclick = () => b.closest('.cal-extra-row').remove();
+    });
+  };
+  bindExtraDel();
+  $('#calExtraAdd').onclick = () => {
+    extraWrap.insertAdjacentHTML(
+      'beforeend',
+      `<div class="cal-cat-row cal-extra-row">
+         <input class="ex-label" value="자율메뉴" placeholder="자율메뉴">
+         <input class="ex-items" value="" placeholder="메뉴1 / 메뉴2">
+         <button class="btn ghost small ex-del">✕</button>
+       </div>`
+    );
+    bindExtraDel();
+  };
+  const readExtras = () =>
+    [...extraWrap.querySelectorAll('.cal-extra-row')]
+      .map(r => ({
+        label: (r.querySelector('.ex-label').value || '자율메뉴').trim(),
+        items: parseMenuText(r.querySelector('.ex-items').value)
+      }))
+      .filter(x => x.items.length);
+
   /* 붙여넣기 → 6칸 자동 분류 */
   const fillCats = menus => {
     const g = splitMenus(menus);
@@ -10746,11 +10804,12 @@ function openCalDayModal(dateStr) {
   /* 식단 초안 저장·복사·비우기 */
   $('#calMealSave').onclick = () => {
     const { menus, cats } = readCats();
-    if (menus.length) {
-      state.draftCal.meals[dateStr] =
-        curSrc
-          ? { menus, cats, src: curSrc }
-          : { menus, cats };
+    const extra = readExtras();
+    if (menus.length || extra.length) {
+      const obj = { menus, cats };
+      if (curSrc) obj.src = curSrc;
+      if (extra.length) obj.extra = extra;
+      state.draftCal.meals[dateStr] = obj;
     } else {
       delete state.draftCal.meals[dateStr];
     }
@@ -10761,6 +10820,7 @@ function openCalDayModal(dateStr) {
 
   $('#calMealCopy').onclick = () => {
     const { menus } = readCats();
+    readExtras().forEach(ex => menus.push(...ex.items));
     if (!menus.length) {
       alert('복사할 메뉴가 없어요.');
       return;

@@ -306,3 +306,12 @@ textarea:focus{outline:none;border-color:#888}
 /* 식단 출처 표시 */
 .cal-src{font-size:8.5px;color:#8a93a3;margin-top:2px}
 .cal-grid.wk5 .cal-src{font-size:10px}
+
+/* 추가 항목(자율메뉴 등) 행 */
+.cal-extra-row{grid-template-columns:64px 1fr 36px}
+.cal-extra-row .ex-label{
+  padding:8px 6px;border:1px solid var(--line);border-radius:8px;
+  font-size:12px;font-weight:800;text-align:center;color:#4b5563;background:#f8f9fc;width:100%;
+}
+.cal-extra-row .ex-items{padding:9px 11px;border:1px solid var(--line);border-radius:9px;width:100%}
+.cmr.ex b{color:#8a5cf6}
