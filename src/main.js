@@ -9655,6 +9655,7 @@ function normalizeDraftCal(v) {
     custom: Array.isArray(o.custom) ? o.custom : [],
     neis: (o.neis && typeof o.neis === 'object') ? o.neis : {},
     offOverride: (o.offOverride && typeof o.offOverride === 'object') ? o.offOverride : {},
+    hideWeekend: !!o.hideWeekend,
     layers: {
       학사일정: true, 세시풍속: true, 삼복: true,
       법정기념일: true, 세계기념일: true, 절기: true,
@@ -9684,6 +9685,7 @@ function mergeDraftCal(c, l) {
     ],
     neis: { ...Lc.neis, ...C.neis },
     offOverride: { ...Lc.offOverride, ...C.offOverride },
+    hideWeekend: C.hideWeekend || Lc.hideWeekend,
     layers: { ...Lc.layers, ...C.layers }
   };
 }
@@ -9900,14 +9902,24 @@ function renderDraftCal() {
     `;
   }).join('');
 
+  const hideWk = !!dc.hideWeekend;
+
   let cells = '';
-  for (let i = 0; i < firstDow; i++) {
-    cells += `<div class="cal-cell empty"></div>`;
-  }
+  let started = false;
 
   for (let day = 1; day <= lastDay; day++) {
     const ds = `${calView.ym}-${String(day).padStart(2, '0')}`;
     const dow = new Date(y, m - 1, day).getDay();
+
+    if (hideWk && (dow === 0 || dow === 6)) continue;
+
+    if (!started) {
+      const pad = hideWk ? dow - 1 : firstDow;
+      for (let i = 0; i < pad; i++) {
+        cells += `<div class="cal-cell empty"></div>`;
+      }
+      started = true;
+    }
     const evs = calEventsFor(ds);
     const shown = evs.slice(0, 3);
     const more = evs.length - shown.length;
@@ -9984,6 +9996,13 @@ function renderDraftCal() {
             style="text-decoration:none"
             title="캘린더만 새 창으로 열어 아카이브 조회 창과 나란히 작업할 수 있어요"
           >↗ 새 창</a>
+          <button
+            class="btn ghost small"
+            id="calWkToggle"
+            title="대부분 학교는 토·일 급식이 없어요. 3식(주말 급식) 학교는 켠 채로 두세요."
+          >
+            ${hideWk ? '📅 토·일 보이기' : '📅 토·일 숨기기'}
+          </button>
         </div>
       </div>
 
@@ -9998,9 +10017,9 @@ function renderDraftCal() {
         ${mineOk ? '' : '⚠️ 나이스 학사일정은 나이스 연동 학교에서만 불러올 수 있어요.'}
       </p>
 
-      <div class="cal-grid" style="margin-top:12px">
-        ${WEEK_KR.map((w, i) => `
-          <div class="cal-head ${i === 0 ? 'sun' : i === 6 ? 'sat' : ''}">${w}</div>
+      <div class="cal-grid ${hideWk ? 'wk5' : ''}" style="margin-top:12px">
+        ${(hideWk ? [1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6]).map(d => `
+          <div class="cal-head ${d === 0 ? 'sun' : d === 6 ? 'sat' : ''}">${WEEK_KR[d]}</div>
         `).join('')}
         ${cells}
       </div>
@@ -10033,6 +10052,12 @@ function renderDraftCal() {
   $$('[data-cal-day]').forEach(cell => {
     cell.onclick = () => openCalDayModal(cell.dataset.calDay);
   });
+
+  $('#calWkToggle').onclick = () => {
+    state.draftCal.hideWeekend = !state.draftCal.hideWeekend;
+    persist();
+    renderDraftCal();
+  };
 
   $('#calNeisLoad').onclick = loadNeisSchedule;
   $('#calSchedPaste').onclick = openSchedPasteModal;

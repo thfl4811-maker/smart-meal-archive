@@ -277,3 +277,6 @@ textarea:focus{outline:none;border-color:#888}
 .cmr b{color:#6b7280;font-weight:900}
 .cmr span{color:#172033;word-break:keep-all}
 @media(max-width:900px){.cmr{font-size:8.5px;grid-template-columns:22px 1fr}}
+
+/* 토·일 숨김: 5칸 그리드 */
+.cal-grid.wk5{grid-template-columns:repeat(5,1fr)}
