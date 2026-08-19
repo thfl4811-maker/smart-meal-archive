@@ -89,10 +89,11 @@ function weekRowPairs(rows, headIdx) {
   for (let i = headIdx + 1; i + 1 < rows.length; i++) {
     const a = childrenOf(rows[i], 'tc');
     const b = childrenOf(rows[i + 1], 'tc');
-    if (a.length >= 5 && b.length >= 5) {
-      pairs.push({ dateCells: a.slice(0, 5), mealCells: b.slice(0, 5) });
-      i++; /* 짝으로 소비 */
-    }
+    /* 식단표는 월~금 정확히 5칸. 뒤에 붙은 원산지 표(15칸) 같은 다른 표를 건드리지 않도록
+       5칸이 아닌 행을 만나면 거기서 멈춘다. */
+    if (a.length !== 5 || b.length !== 5) break;
+    pairs.push({ dateCells: a, mealCells: b });
+    i++; /* 짝으로 소비 */
   }
   return pairs;
 }
@@ -145,9 +146,14 @@ export async function fillMealHwpx(buf, weeks) {
   let filledDays = 0;
   const n = Math.min(pairs.length, weeks.length);
 
+  let touchedWeeks = 0;
   for (let w = 0; w < n; w++) {
     const pr = pairs[w];
     const days = weeks[w].days || [];
+    /* 그 주에 넣을 식단이 하나도 없으면 아예 손대지 않는다.
+       빈 값으로 덮어써서 원본 표를 지워버리는 사고를 막는다. */
+    if (!days.some(d => d && (d.menus || []).length)) continue;
+    touchedWeeks++;
     for (let d = 0; d < 5; d++) {
       const day = days[d];
       setCellLines(pr.dateCells[d], day && day.label ? [day.label] : [''], dateTpl);
@@ -155,6 +161,16 @@ export async function fillMealHwpx(buf, weeks) {
       setCellLines(pr.mealCells[d], menus, mealTpl);
       if (menus.length) filledDays++;
     }
+  }
+
+  /* 넣을 게 하나도 없으면 파일을 아예 만들지 않는다 (빈 표가 나오는 사고 방지) */
+  if (!filledDays) {
+    throw Error(
+      '이 달에 넣을 식단이 없어요.\n\n' +
+      '· 「내가 짠 식단 초안」을 골랐다면 → 캘린더에 초안이 있는지 확인해 주세요\n' +
+      '· 「나이스 실제 급식」을 골랐다면 → 툴바의 🍚 나이스 우리학교 식단 불러오기를 먼저 눌러주세요\n' +
+      '· 지금 보고 있는 달이 채워집니다. 달을 잘못 고르지 않았는지도 확인해 주세요.'
+    );
   }
 
   const outXml = new XMLSerializer().serializeToString(doc);
@@ -177,5 +193,5 @@ export async function fillMealHwpx(buf, weeks) {
     mimeType: 'application/hwp+zip'
   });
 
-  return { blob, filledWeeks: n, formWeeks: pairs.length, filledDays };
+  return { blob, filledWeeks: touchedWeeks, formWeeks: pairs.length, filledDays };
 }

@@ -9901,6 +9901,30 @@ function calCleanDishes(raw) {
 
 /* 식단표(한글)용 — 알레르기 번호는 남기고 학년 표시((고)·(중) 등)만 뗀다.
    calCleanDishes는 괄호를 통째로 지워서 (5.6.16) 같은 알레르기 번호까지 사라진다. */
+/* 나이스 영양정보 → 학교 식단표에 쓰는 두 줄
+   예) '* 에너지/단백질/칼슘/철' / '1,201.59/68.63/372.91/6.32' */
+function calNutriLines(row) {
+  const num = v => {
+    const m = String(v == null ? '' : v).match(/[\d.]+/);
+    return m ? parseFloat(m[0]) : null;
+  };
+  const ntr = String(row.nutrients || '');
+  const pick = re => { const m = ntr.match(re); return m ? parseFloat(m[1]) : null; };
+
+  const kcal = num(row.calories);
+  const prot = pick(/단백질[^:]*:\s*([\d.]+)/);
+  const ca   = pick(/칼슘[^:]*:\s*([\d.]+)/);
+  const fe   = pick(/철[^:]*:\s*([\d.]+)/);
+
+  if (kcal == null && prot == null && ca == null && fe == null) return null;
+
+  const fmt = v => v == null
+    ? '-'
+    : v.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  return ['* 에너지/단백질/칼슘/철', [kcal, prot, ca, fe].map(fmt).join('/')];
+}
+
 function calDishesRaw(raw) {
   return String(raw || '')
     .split(/<br\s*\/?>|\n/i)
@@ -10285,8 +10309,8 @@ async function loadNeisSchedule() {
 }
 
 /* ── 한글(.hwpx) 식단표로 내보내기 ── */
-function calWeeksForExport(ym, useReal, withAllergy) {
-  let allergyHits = 0, rawDays = 0, mealDays = 0;
+function calWeeksForExport(ym, useReal, withAllergy, withNutri) {
+  let allergyHits = 0, rawDays = 0, mealDays = 0, nutriDays = 0;
   const [y, m] = ym.split('-').map(Number);
   const last = new Date(y, m, 0).getDate();
   const weeks = [];
@@ -10333,12 +10357,17 @@ function calWeeksForExport(ym, useReal, withAllergy) {
       });
     }
 
+    if (withNutri && menus.length) {
+      const nu = ((state.draftCal.real || {})[ds] || {}).nutri;
+      if (nu && nu.length) { menus = menus.concat(nu); nutriDays++; }
+    }
+
     cur.days[dow - 1] = {
       label: `${m}/${d}${evName ? ' ' + evName : ''}`,
       menus: calIsOffDay(ds) && !menus.length ? [] : menus
     };
   }
-  weeks.stats = { allergyHits, rawDays, mealDays };
+  weeks.stats = { allergyHits, rawDays, mealDays, nutriDays };
   return weeks;
 }
 
@@ -10379,6 +10408,11 @@ function openHwpxModal() {
           <input type="checkbox" id="hwpxAllergy" checked>
           <span><b>알레르기 번호 넣기</b> — 나이스 원문의 <b>(5.6.16)</b> 같은 번호를 함께 적습니다</span>
         </label>
+        <label class="row" style="gap:6px;cursor:pointer;margin-top:6px">
+          <input type="checkbox" id="hwpxNutri" checked>
+          <span><b>영양량 넣기</b> — 칸 아래에
+            <b>* 에너지/단백질/칼슘/철</b> 과 수치를 두 줄로 적습니다</span>
+        </label>
       </div>
 
       <div class="field">
@@ -10413,7 +10447,8 @@ function openHwpxModal() {
 
     try {
       const withAllergy = !!($('#hwpxAllergy') || {}).checked;
-      const weeks = calWeeksForExport(ym, useReal, withAllergy);
+      const withNutri = !!($('#hwpxNutri') || {}).checked;
+      const weeks = calWeeksForExport(ym, useReal, withAllergy, withNutri);
       const r = await fillMealHwpx(await f.arrayBuffer(), weeks);
       const url = URL.createObjectURL(r.blob);
       const base = f.name.replace(/\.hwpx$/i, '');
@@ -10436,6 +10471,11 @@ function openHwpxModal() {
                      툴바의 <b>🍚 나이스 우리학교 식단 불러오기</b>를 <b>한 번 더</b> 눌러 자료를 새로 받은 뒤
                      다시 내보내면 번호가 들어갑니다. (예전에 불러온 자료에는 번호가 빠져 있어요)</span>`)
               : '알레르기 번호 없이 내보냈어요'}
+            ${withNutri
+              ? (weeks.stats.nutriDays
+                  ? ` · 영양량 <b>${weeks.stats.nutriDays}일</b>`
+                  : ` · <span style="color:#b45309">영양량 자료가 없어요 (나이스 식단을 다시 불러와 주세요)</span>`)
+              : ''}
           </div>
           <div style="margin-top:10px">
             <a class="btn small" href="${url}" download="${base}_${y}년${m}월.hwpx">📥 채워진 한글 파일 내려받기</a>
@@ -10490,6 +10530,7 @@ async function loadNeisMeals() {
       state.draftCal.real[ds] = {
         menus,
         raw: calDishesRaw(r.dishes),   /* 알레르기 번호 포함 — 식단표 내보내기용 */
+        nutri: calNutriLines(r),       /* 에너지/단백질/칼슘/철 두 줄 */
         cats: splitMenus(menus),
         src: `${ds} · ${s.schoolName} (나이스 실제)`
       };
