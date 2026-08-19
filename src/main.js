@@ -10341,11 +10341,15 @@ function openHwpxModal() {
   const ym = calView.ym;
   const [y, m] = ym.split('-').map(Number);
   const mo = $('#modal');
-  const close = () => { mo.classList.remove('on'); mo.innerHTML = ''; };
+  const close = () => { mo.innerHTML = ''; };
 
   mo.innerHTML = `
-    <div class="modal-box">
-      <h2>📄 한글 식단표로 내보내기</h2>
+    <div class="modal" id="hwpxModal">
+      <div class="modal-card">
+      <div class="row" style="justify-content:space-between">
+        <h2>📄 한글 식단표로 내보내기</h2>
+        <button class="btn ghost small" id="hwpxClose2">닫기 ✕</button>
+      </div>
       <p class="help">
         학교에서 쓰시는 <b>한글 식단계획표(.hwpx)</b>를 올리면,
         ${y}년 ${m}월 식단을 <b>월~금 칸에 그대로 채워</b> 돌려드려요.
@@ -10386,10 +10390,12 @@ function openHwpxModal() {
       <div class="row" style="gap:6px;margin-top:14px">
         <button class="btn ghost small" id="hwpxClose">닫기</button>
       </div>
+      </div>
     </div>`;
-  mo.classList.add('on');
   $('#hwpxClose').onclick = close;
-  mo.onclick = e => { if (e.target === mo) close(); };
+  if ($('#hwpxClose2')) $('#hwpxClose2').onclick = close;
+  const back = $('#hwpxModal');
+  if (back) back.onclick = e => { if (e.target === back) close(); };
 
   $('#hwpxFile').onchange = async () => {
     const f = $('#hwpxFile').files[0];
