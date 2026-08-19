@@ -10286,6 +10286,7 @@ async function loadNeisSchedule() {
 
 /* ── 한글(.hwpx) 식단표로 내보내기 ── */
 function calWeeksForExport(ym, useReal, withAllergy) {
+  let allergyHits = 0, rawDays = 0, mealDays = 0;
   const [y, m] = ym.split('-').map(Number);
   const last = new Date(y, m, 0).getDate();
   const weeks = [];
@@ -10319,12 +10320,15 @@ function calWeeksForExport(ym, useReal, withAllergy) {
 
     /* 알레르기 번호 붙이기 — 그날 나이스 실제 급식의 원문에서 같은 메뉴를 찾아 갈아끼운다.
        초안을 '실제 급식에서 가져오기'로 만든 경우에도 번호가 살아난다. */
+    if (menus.length) mealDays++;
     if (withAllergy) {
       const rawList = ((state.draftCal.real || {})[ds] || {}).raw || [];
+      if (rawList.length) rawDays++;
       const key = x => String(x).replace(/\([^)]*\)/g, '').replace(/\s/g, '');
       menus = menus.map(mn => {
-        if (/\(\s*[\d.]+\s*\)/.test(mn)) return mn;      /* 이미 번호가 있으면 그대로 */
+        if (/\(\s*[\d.]+\s*\)/.test(mn)) { allergyHits++; return mn; }
         const hit = rawList.find(r => key(r) === key(mn));
+        if (hit && /\(\s*[\d.]+\s*\)/.test(hit)) { allergyHits++; return hit; }
         return hit || mn;
       });
     }
@@ -10334,6 +10338,7 @@ function calWeeksForExport(ym, useReal, withAllergy) {
       menus: calIsOffDay(ds) && !menus.length ? [] : menus
     };
   }
+  weeks.stats = { allergyHits, rawDays, mealDays };
   return weeks;
 }
 
@@ -10422,6 +10427,15 @@ function openHwpxModal() {
               ? `<br><span style="color:#b45309">⚠️ 이 달은 ${weeks.length}주인데 양식에 주 칸이 ${r.formWeeks}개뿐이라
                  마지막 ${weeks.length - r.formWeeks}주는 넣지 못했어요. 한글에서 표에 줄을 더 넣고 다시 시도해 주세요.</span>`
               : ''}
+          </div>
+          <div class="line" style="margin-top:6px">
+            ${withAllergy
+              ? (weeks.stats.allergyHits
+                  ? `알레르기 번호 <b>${weeks.stats.allergyHits}개</b> 표시`
+                  : `<span style="color:#b45309">⚠️ 알레르기 번호를 붙일 원문이 없어요.
+                     툴바의 <b>🍚 나이스 우리학교 식단 불러오기</b>를 <b>한 번 더</b> 눌러 자료를 새로 받은 뒤
+                     다시 내보내면 번호가 들어갑니다. (예전에 불러온 자료에는 번호가 빠져 있어요)</span>`)
+              : '알레르기 번호 없이 내보냈어요'}
           </div>
           <div style="margin-top:10px">
             <a class="btn small" href="${url}" download="${base}_${y}년${m}월.hwpx">📥 채워진 한글 파일 내려받기</a>
