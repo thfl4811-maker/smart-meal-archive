@@ -1,6 +1,7 @@
 import './style.css';
 import { initializeApp } from 'firebase/app';
 import * as XLSX from 'xlsx';
+import { fillMealHwpx } from './hwpx.js';
 import {
   SPECIAL_DAYS,
   SPECIAL_CATS,
@@ -9656,6 +9657,7 @@ function normalizeDraftCal(v) {
     meals: (o.meals && typeof o.meals === 'object') ? o.meals : {},
     /* real = 나이스에서 불러온 '실제 급식'. 초안(meals)과 절대 섞지 않는다 */
     real: (o.real && typeof o.real === 'object') ? o.real : {},
+    showReal: o.showReal !== false,
     custom: Array.isArray(o.custom) ? o.custom : [],
     neis: (o.neis && typeof o.neis === 'object') ? o.neis : {},
     offOverride: (o.offOverride && typeof o.offOverride === 'object') ? o.offOverride : {},
@@ -9682,6 +9684,7 @@ function mergeDraftCal(c, l) {
   return {
     meals: { ...Lc.meals, ...C.meals },
     real: { ...Lc.real, ...C.real },
+    showReal: C.showReal !== false && Lc.showReal !== false,
     custom: [
       ...C.custom,
       ...Lc.custom.filter(
@@ -9896,6 +9899,20 @@ function calCleanDishes(raw) {
     .filter(Boolean);
 }
 
+/* 식단표(한글)용 — 알레르기 번호는 남기고 학년 표시((고)·(중) 등)만 뗀다.
+   calCleanDishes는 괄호를 통째로 지워서 (5.6.16) 같은 알레르기 번호까지 사라진다. */
+function calDishesRaw(raw) {
+  return String(raw || '')
+    .split(/<br\s*\/?>|\n/i)
+    .flatMap(x => x.includes(' / ') ? x.split(' / ') : [x])
+    .map(x =>
+      x.replace(/\(\s*[가-힣]{1,3}\s*\)/g, '')   /* (고) (중) (저학년) 등 */
+        .replace(/\s+/g, ' ')
+        .trim()
+    )
+    .filter(Boolean);
+}
+
 async function loadPrevTailMeals(ym, dates) {
   if (!state.mine || !dates.length) return;
   if (_prevMealsCache[ym]) return;
@@ -10014,7 +10031,8 @@ function renderDraftCal() {
     const more = evs.length - shown.length;
     const meal = dc.meals[ds];
     /* 초안이 없는 날에만 나이스 실제 급식을 회색으로 겹쳐 보여준다 (초안 보호) */
-    const realMeal = (!meal || !(meal.menus || []).length) ? (dc.real || {})[ds] : null;
+    const realMeal = (dc.showReal !== false && (!meal || !(meal.menus || []).length))
+      ? (dc.real || {})[ds] : null;
 
     const offDay = calIsOffDay(ds);
 
@@ -10070,6 +10088,7 @@ function renderDraftCal() {
     state.mine && state.mine.officeCode !== 'UPLOAD';
 
   const mdc = calMealDayCount(calView.ym);
+  const dcShowReal = state.draftCal.showReal !== false;
 
   c.innerHTML = `
     ${recToggleHTML()}
@@ -10097,6 +10116,10 @@ function renderDraftCal() {
             title="이 달에 나이스에 공개된 우리 학교 실제 급식을 캘린더로 불러옵니다">
             🍚 나이스 우리학교 식단 불러오기
           </button>
+          <button class="btn ghost small" id="calRealToggle"
+            title="캘린더 칸에서 나이스 실제 급식을 보이거나 감춥니다. 감춰도 자료는 그대로 있어요.">
+            ${dcShowReal ? '🙈 실제 급식 감추기' : '👁 실제 급식 보기'}
+          </button>
           <button class="btn ghost small" id="calSchedPaste">
             📋 학사일정 붙여넣기
           </button>
@@ -10110,6 +10133,10 @@ function renderDraftCal() {
             style="text-decoration:none"
             title="캘린더만 새 창으로 열어 아카이브 조회 창과 나란히 작업할 수 있어요"
           >↗ 새 창</a>
+          <button class="btn ghost small" id="calHwpx"
+            title="학교 한글 식단계획표 양식에 이 달 식단을 채워 넣습니다">
+            📄 한글 식단표로 내보내기
+          </button>
           <button class="btn ghost small" id="calPrint">
             🖨 출력
           </button>
@@ -10180,6 +10207,7 @@ function renderDraftCal() {
   };
 
   $('#calPrint').onclick = printCalMonth;
+  if ($('#calHwpx')) $('#calHwpx').onclick = openHwpxModal;
   $('#calDupCheck').onclick = openDupCheck;
 
   if (
@@ -10192,6 +10220,13 @@ function renderDraftCal() {
 
   $('#calNeisLoad').onclick = loadNeisSchedule;
   if ($('#calMealLoad')) $('#calMealLoad').onclick = loadNeisMeals;
+  if ($('#calRealToggle')) {
+    $('#calRealToggle').onclick = () => {
+      state.draftCal.showReal = state.draftCal.showReal === false;
+      persist();
+      renderDraftCal();
+    };
+  }
   $('#calSchedPaste').onclick = openSchedPasteModal;
   $('#calCopyMonth').onclick = copyCalMonth;
 }
@@ -10254,6 +10289,156 @@ async function loadNeisSchedule() {
   }
 }
 
+/* ── 한글(.hwpx) 식단표로 내보내기 ── */
+function calWeeksForExport(ym, useReal, withAllergy) {
+  const [y, m] = ym.split('-').map(Number);
+  const last = new Date(y, m, 0).getDate();
+  const weeks = [];
+  let cur = null;
+
+  for (let d = 1; d <= last; d++) {
+    const dt = new Date(y, m - 1, d);
+    const dow = dt.getDay();               /* 0=일 … 6=토 */
+    if (dow === 0 || dow === 6) continue;  /* 양식이 월~금 5칸 */
+    if (dow === 1 || !cur) {
+      cur = { days: [null, null, null, null, null] };
+      weeks.push(cur);
+    }
+    const ds =
+      `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const src = useReal
+      ? (state.draftCal.real || {})[ds]
+      : state.draftCal.meals[ds];
+
+    /* 그날 행사(학사일정·특일)를 날짜 옆에 붙인다 */
+    const evName = (calEventsFor(ds) || [])
+      .map(e => e.name)
+      .filter(Boolean)
+      .slice(0, 1)
+      .join('');
+
+    let menus = src
+      ? CAL_CAT_ORDER.flatMap(k => (calMealCats(src)[k] || []))
+          .concat((src.extra || []).flatMap(ex => ex.items || []))
+      : [];
+
+    /* 알레르기 번호 붙이기 — 그날 나이스 실제 급식의 원문에서 같은 메뉴를 찾아 갈아끼운다.
+       초안을 '실제 급식에서 가져오기'로 만든 경우에도 번호가 살아난다. */
+    if (withAllergy) {
+      const rawList = ((state.draftCal.real || {})[ds] || {}).raw || [];
+      const key = x => String(x).replace(/\([^)]*\)/g, '').replace(/\s/g, '');
+      menus = menus.map(mn => {
+        if (/\(\s*[\d.]+\s*\)/.test(mn)) return mn;      /* 이미 번호가 있으면 그대로 */
+        const hit = rawList.find(r => key(r) === key(mn));
+        return hit || mn;
+      });
+    }
+
+    cur.days[dow - 1] = {
+      label: `${m}/${d}${evName ? ' ' + evName : ''}`,
+      menus: calIsOffDay(ds) && !menus.length ? [] : menus
+    };
+  }
+  return weeks;
+}
+
+function openHwpxModal() {
+  const ym = calView.ym;
+  const [y, m] = ym.split('-').map(Number);
+  const mo = $('#modal');
+  const close = () => { mo.classList.remove('on'); mo.innerHTML = ''; };
+
+  mo.innerHTML = `
+    <div class="modal-box">
+      <h2>📄 한글 식단표로 내보내기</h2>
+      <p class="help">
+        학교에서 쓰시는 <b>한글 식단계획표(.hwpx)</b>를 올리면,
+        ${y}년 ${m}월 식단을 <b>월~금 칸에 그대로 채워</b> 돌려드려요.
+        표·서식·색은 원본 그대로 두고 글자만 바꿉니다.
+        <b>파일은 이 컴퓨터 안에서만 처리</b>되고 서버로 가지 않아요.
+      </p>
+
+      <div class="field">
+        <label>무엇을 넣을까요?</label>
+        <div class="row" style="gap:14px;flex-wrap:wrap">
+          <label class="row" style="gap:6px">
+            <input type="radio" name="hwpxSrc" value="draft" checked> 내가 짠 <b>식단 초안</b>
+          </label>
+          <label class="row" style="gap:6px">
+            <input type="radio" name="hwpxSrc" value="real"> 나이스 <b>실제 급식</b>
+          </label>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="row" style="gap:6px;cursor:pointer">
+          <input type="checkbox" id="hwpxAllergy" checked>
+          <span><b>알레르기 번호 넣기</b> — 나이스 원문의 <b>(5.6.16)</b> 같은 번호를 함께 적습니다</span>
+        </label>
+      </div>
+
+      <div class="field">
+        <label>한글 양식 파일 (.hwpx)</label>
+        <input type="file" id="hwpxFile" accept=".hwpx">
+        <p class="help" style="margin-top:6px">
+          ⚠️ 한글 <b>97~2007용 .hwp</b>는 안 되고 <b>.hwpx</b>만 됩니다.
+          한글에서 <b>다른 이름으로 저장 → 파일 형식 ‘한글 문서(*.hwpx)’</b>로 한 번 저장해 주세요.
+        </p>
+      </div>
+
+      <div id="hwpxResult"></div>
+
+      <div class="row" style="gap:6px;margin-top:14px">
+        <button class="btn ghost small" id="hwpxClose">닫기</button>
+      </div>
+    </div>`;
+  mo.classList.add('on');
+  $('#hwpxClose').onclick = close;
+  mo.onclick = e => { if (e.target === mo) close(); };
+
+  $('#hwpxFile').onchange = async () => {
+    const f = $('#hwpxFile').files[0];
+    if (!f) return;
+    const box = $('#hwpxResult');
+    box.innerHTML = '<p class="help">양식을 읽는 중…</p>';
+
+    const useReal =
+      (mo.querySelector('input[name=hwpxSrc]:checked') || {}).value === 'real';
+
+    try {
+      const withAllergy = !!($('#hwpxAllergy') || {}).checked;
+      const weeks = calWeeksForExport(ym, useReal, withAllergy);
+      const r = await fillMealHwpx(await f.arrayBuffer(), weeks);
+      const url = URL.createObjectURL(r.blob);
+      const base = f.name.replace(/\.hwpx$/i, '');
+
+      box.innerHTML = `
+        <div class="real-box" style="border-style:solid">
+          <h4>✅ ${y}년 ${m}월 · ${r.filledDays}일치를 채웠어요</h4>
+          <div class="line">
+            양식의 주 칸 <b>${r.formWeeks}개</b> 중 <b>${r.filledWeeks}개</b>를 사용했어요.
+            ${weeks.length > r.formWeeks
+              ? `<br><span style="color:#b45309">⚠️ 이 달은 ${weeks.length}주인데 양식에 주 칸이 ${r.formWeeks}개뿐이라
+                 마지막 ${weeks.length - r.formWeeks}주는 넣지 못했어요. 한글에서 표에 줄을 더 넣고 다시 시도해 주세요.</span>`
+              : ''}
+          </div>
+          <div style="margin-top:10px">
+            <a class="btn small" href="${url}" download="${base}_${y}년${m}월.hwpx">📥 채워진 한글 파일 내려받기</a>
+          </div>
+          <p class="help" style="margin-top:8px">
+            내려받아 한글에서 열어 확인해 주세요. 알레르기 번호·영양량은 원본 그대로 두지 않고
+            비워지니, 필요하면 한글에서 마저 적어주세요.
+          </p>
+        </div>`;
+    } catch (e) {
+      box.innerHTML =
+        `<div class="real-box" style="border-color:#f3c1c1;background:#fdf5f5">
+           <div class="line" style="color:#dc2626;white-space:pre-wrap">${esc(e.message || '내보내기에 실패했어요.')}</div>
+         </div>`;
+    }
+  };
+}
+
 /* ── 나이스 우리학교 식단 불러오기 ──
    ★ 초안(state.draftCal.meals)은 절대 건드리지 않는다.
      나이스에서 받은 실제 급식은 state.draftCal.real 에 따로 쌓고,
@@ -10289,6 +10474,7 @@ async function loadNeisMeals() {
       if (!menus.length) return;
       state.draftCal.real[ds] = {
         menus,
+        raw: calDishesRaw(r.dishes),   /* 알레르기 번호 포함 — 식단표 내보내기용 */
         cats: splitMenus(menus),
         src: `${ds} · ${s.schoolName} (나이스 실제)`
       };
