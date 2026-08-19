@@ -32,19 +32,44 @@ function dropLineSeg(p) {
   childrenOf(p, 'linesegarray').forEach(x => p.removeChild(x));
 }
 
+const HP_NS = 'http://www.hancom.co.kr/hwpml/2011/paragraph';
+
+/* 글자를 담을 <hp:t>를 확보한다.
+
+   아무것도 안 채운 빈 양식의 셀은 문단이 이렇게 생겼다.
+       <hp:p><hp:run charPrIDRef="32"/><hp:linesegarray .../></hp:p>
+   글자칸(<hp:t>)이 아예 없다. 예전 코드는 t를 찾지 못하면 그냥 넘어가서
+   빈 문단만 잔뜩 넣었고, 그래서 표가 통째로 빈칸으로 나왔다.
+   여기서는 run 안에 t를 만들어 준다. charPrIDRef는 건드리지 않으므로
+   원본 양식의 글꼴·크기가 그대로 유지된다. */
+function ensureTextNodes(p) {
+  const ts = descendants(p, 't');
+  if (ts.length) return ts;
+
+  const doc = p.ownerDocument;
+  const nameFor = (node, local) => (node.prefix ? node.prefix + ':' : '') + local;
+
+  let run = descendants(p, 'run')[0];
+  if (!run) {
+    run = doc.createElementNS(p.namespaceURI || HP_NS, nameFor(p, 'run'));
+    p.appendChild(run);
+  }
+  const t = doc.createElementNS(run.namespaceURI || HP_NS, nameFor(run, 't'));
+  run.appendChild(t);
+  return [t];
+}
+
 /* 템플릿 문단을 복제해 글자만 갈아끼움 */
 function makePara(tplP, text) {
   const p = tplP.cloneNode(true);
   dropLineSeg(p);
-  const ts = descendants(p, 't');
-  if (ts.length) {
-    ts[0].textContent = text;
-    /* run이 여러 개면 첫 run만 남긴다 */
-    ts.slice(1).forEach(t => {
-      const run = t.parentNode;
-      if (run && run.parentNode === p) p.removeChild(run);
-    });
-  }
+  const ts = ensureTextNodes(p);
+  ts[0].textContent = text;
+  /* run이 여러 개면 첫 run만 남긴다 */
+  ts.slice(1).forEach(t => {
+    const run = t.parentNode;
+    if (run && run.parentNode === p) p.removeChild(run);
+  });
   return p;
 }
 
@@ -147,6 +172,7 @@ export async function fillMealHwpx(buf, weeks) {
   const n = Math.min(pairs.length, weeks.length);
 
   let touchedWeeks = 0;
+  const touchedCells = [];
   for (let w = 0; w < n; w++) {
     const pr = pairs[w];
     const days = weeks[w].days || [];
@@ -159,8 +185,22 @@ export async function fillMealHwpx(buf, weeks) {
       setCellLines(pr.dateCells[d], day && day.label ? [day.label] : [''], dateTpl);
       const menus = (day && day.menus) || [];
       setCellLines(pr.mealCells[d], menus, mealTpl);
-      if (menus.length) filledDays++;
+      if (menus.length) {
+        filledDays++;
+        touchedCells.push(pr.mealCells[d]);
+      }
     }
+  }
+
+  /* 넣었다고 생각한 글자가 실제로 표 안에 들어갔는지 되읽어 확인한다.
+     빈 파일을 조용히 내려주는 것보다 이유를 말해 주는 편이 낫다. */
+  const writtenChars = touchedCells.reduce((s, tc) => s + tcText(tc).length, 0);
+  if (touchedCells.length && !writtenChars) {
+    throw Error(
+      '식단을 표에 넣었는데 글자가 들어가지 않았어요.\n' +
+      '이 양식은 제가 아직 다루지 못하는 구조인 것 같습니다.\n' +
+      '양식 파일을 개발자(thfl4811@gmail.com)에게 보내주시면 맞춰서 고치겠습니다.'
+    );
   }
 
   /* 넣을 게 하나도 없으면 파일을 아예 만들지 않는다 (빈 표가 나오는 사고 방지) */
