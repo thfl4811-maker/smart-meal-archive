@@ -315,3 +315,11 @@ textarea:focus{outline:none;border-color:#888}
 }
 .cal-extra-row .ex-items{padding:9px 11px;border:1px solid var(--line);border-radius:9px;width:100%}
 .cmr.ex b{color:#8a5cf6}
+
+/* 나이스에서 불러온 '실제 급식' — 초안과 구분되게 흐리게 */
+.cal-meal2.real { opacity: .62; }
+.cal-meal2.real .cmr b { background: #eef2f7; color: #64748b; }
+.cal-src.real { color: #94a3b8; font-style: normal; }
+.real-box { border: 1px dashed #cbd5e1; background: #f8fafc; border-radius: 10px; padding: 10px 12px; margin: 10px 0; }
+.real-box h4 { font-size: 13px; margin-bottom: 6px; color: #64748b; }
+.real-box .line { font-size: 12.5px; line-height: 1.8; color: #475569; }

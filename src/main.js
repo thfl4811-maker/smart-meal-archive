@@ -9654,6 +9654,8 @@ function normalizeDraftCal(v) {
   const o = v && typeof v === 'object' ? v : {};
   return {
     meals: (o.meals && typeof o.meals === 'object') ? o.meals : {},
+    /* real = 나이스에서 불러온 '실제 급식'. 초안(meals)과 절대 섞지 않는다 */
+    real: (o.real && typeof o.real === 'object') ? o.real : {},
     custom: Array.isArray(o.custom) ? o.custom : [],
     neis: (o.neis && typeof o.neis === 'object') ? o.neis : {},
     offOverride: (o.offOverride && typeof o.offOverride === 'object') ? o.offOverride : {},
@@ -9679,6 +9681,7 @@ function mergeDraftCal(c, l) {
   const Lc = normalizeDraftCal(l);
   return {
     meals: { ...Lc.meals, ...C.meals },
+    real: { ...Lc.real, ...C.real },
     custom: [
       ...C.custom,
       ...Lc.custom.filter(
@@ -10010,6 +10013,8 @@ function renderDraftCal() {
     const shown = evs.slice(0, 3);
     const more = evs.length - shown.length;
     const meal = dc.meals[ds];
+    /* 초안이 없는 날에만 나이스 실제 급식을 회색으로 겹쳐 보여준다 (초안 보호) */
+    const realMeal = (!meal || !(meal.menus || []).length) ? (dc.real || {})[ds] : null;
 
     const offDay = calIsOffDay(ds);
 
@@ -10045,6 +10050,18 @@ function renderDraftCal() {
               }`
             : ''
         }
+        ${
+          realMeal && (realMeal.menus || []).length
+            ? `<div class="cal-meal2 real">${
+                CAL_CAT_ORDER.map(k => {
+                  const arr = (realMeal.cats || {})[k] || [];
+                  return arr.length
+                    ? `<div class="cmr"><b>${CAL_CAT_SHORT[k]}</b><span>${esc(arr.join(', '))}</span></div>`
+                    : '';
+                }).join('')
+              }</div><div class="cal-src real">🍚 나이스 실제 급식</div>`
+            : ''
+        }
       </div>
     `;
   }
@@ -10075,6 +10092,10 @@ function renderDraftCal() {
         <div class="row" style="gap:6px;flex-wrap:wrap">
           <button class="btn ghost small" id="calNeisLoad" ${mineOk ? '' : 'disabled'}>
             🏫 나이스 학사일정 불러오기
+          </button>
+          <button class="btn ghost small" id="calMealLoad" ${mineOk ? '' : 'disabled'}
+            title="이 달에 나이스에 공개된 우리 학교 실제 급식을 캘린더로 불러옵니다">
+            🍚 나이스 우리학교 식단 불러오기
           </button>
           <button class="btn ghost small" id="calSchedPaste">
             📋 학사일정 붙여넣기
@@ -10170,6 +10191,7 @@ function renderDraftCal() {
   }
 
   $('#calNeisLoad').onclick = loadNeisSchedule;
+  if ($('#calMealLoad')) $('#calMealLoad').onclick = loadNeisMeals;
   $('#calSchedPaste').onclick = openSchedPasteModal;
   $('#calCopyMonth').onclick = copyCalMonth;
 }
@@ -10228,6 +10250,65 @@ async function loadNeisSchedule() {
 
   } catch (e) {
     alert(e.message);
+    renderDraftCal();
+  }
+}
+
+/* ── 나이스 우리학교 식단 불러오기 ──
+   ★ 초안(state.draftCal.meals)은 절대 건드리지 않는다.
+     나이스에서 받은 실제 급식은 state.draftCal.real 에 따로 쌓고,
+     칸에서는 초안이 없는 날에만 회색으로 겹쳐 보여준다.
+     초안으로 쓰고 싶으면 날짜 모달에서 '초안으로 가져오기'를 눌러 옮긴다. */
+async function loadNeisMeals() {
+  const s = state.mine;
+  if (!s) {
+    alert('내 학교가 설정되어 있어야 식단을 불러올 수 있어요.');
+    return;
+  }
+
+  const ym = calView.ym;
+  const [y, m] = ym.split('-').map(Number);
+  const last = new Date(y, m, 0).getDate();
+  const from = `${ym}-01`;
+  const to = `${ym}-${String(last).padStart(2, '0')}`;
+
+  const btn = $('#calMealLoad');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading"></span>불러오는 중';
+  }
+
+  try {
+    const rows = await fetchMeals(s, from, to);
+    let n = 0;
+
+    rows.forEach(r => {
+      const dd = String(r.date);
+      const ds = `${dd.slice(0, 4)}-${dd.slice(4, 6)}-${dd.slice(6, 8)}`;
+      const menus = calCleanDishes(r.dishes);
+      if (!menus.length) return;
+      state.draftCal.real[ds] = {
+        menus,
+        cats: splitMenus(menus),
+        src: `${ds} · ${s.schoolName} (나이스 실제)`
+      };
+      n++;
+    });
+
+    persist();
+    renderDraftCal();
+
+    alert(
+      n
+        ? `🍚 ${m}월 나이스 식단 ${n}일치를 불러왔어요.\n\n` +
+          `초안은 그대로 있어요 — 실제 급식은 회색으로 따로 표시됩니다.\n` +
+          `그 식단을 초안으로 쓰고 싶으면 날짜를 눌러 '초안으로 가져오기'를 누르세요.`
+        : `${m}월에 나이스에 공개된 우리 학교 급식이 없어요.\n` +
+          `(방학이거나 아직 나이스에 올리지 않은 달일 수 있어요)`
+    );
+
+  } catch (e) {
+    alert(e.message || '식단을 불러오지 못했어요.');
     renderDraftCal();
   }
 }
@@ -10562,6 +10643,25 @@ function openCalDayModal(dateStr) {
           </span>
         </label>
 
+        ${(() => {
+          /* 나이스에서 불러온 실제 급식이 있으면 참고용으로 보여주고,
+             원할 때만 초안으로 옮긴다 (자동으로 덮어쓰지 않음) */
+          const rm = (state.draftCal.real || {})[dateStr];
+          if (!rm || !(rm.menus || []).length) return '';
+          return `
+        <div class="real-box">
+          <h4>🍚 나이스 실제 급식 <span style="font-weight:400">— 참고용, 초안과 별도로 보관돼요</span></h4>
+          <div class="line">${CAL_CAT_ORDER.map(k => {
+            const arr = (rm.cats || {})[k] || [];
+            return arr.length ? `<b>${CAL_CAT_SHORT[k]}</b> ${esc(arr.join(', '))}` : '';
+          }).filter(Boolean).join('<br>')}</div>
+          <div class="row" style="gap:6px;margin-top:8px">
+            <button class="btn ghost small" id="calRealToDraft">⬇ 이 식단을 초안으로 가져오기</button>
+            <button class="btn ghost small" id="calRealCopy">📋 복사</button>
+          </div>
+        </div>`;
+        })()}
+
         <div class="field" style="margin:16px 0 0">
           <label>🍱 식단 초안 — 밥 · 국 · 주찬 · 부찬 · 김치 · 후식 순</label>
           <textarea
@@ -10806,6 +10906,29 @@ function openCalDayModal(dateStr) {
       }
     }, 60);
   });
+
+  /* 나이스 실제 급식 → 초안으로 가져오기 */
+  if ($('#calRealToDraft')) {
+    $('#calRealToDraft').onclick = () => {
+      const rm = (state.draftCal.real || {})[dateStr];
+      if (!rm) return;
+      fillCats(rm.menus);
+      setSrc(rm.src || '');
+      alert('초안 칸에 채웠어요. 확인하고 💾 저장을 눌러주세요.');
+    };
+  }
+  if ($('#calRealCopy')) {
+    $('#calRealCopy').onclick = () => {
+      const rm = (state.draftCal.real || {})[dateStr];
+      if (!rm) return;
+      const txt = CAL_CAT_ORDER
+        .flatMap(k => (rm.cats || {})[k] || [])
+        .join(' / ') + (rm.src ? `\n※ ${rm.src}` : '');
+      navigator.clipboard.writeText(txt)
+        .then(() => alert('복사했어요.'))
+        .catch(() => alert('복사에 실패했어요.'));
+    };
+  }
 
   /* 식단 초안 저장·복사·비우기 */
   $('#calMealSave').onclick = () => {
