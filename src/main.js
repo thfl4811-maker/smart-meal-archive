@@ -10031,8 +10031,13 @@ function renderDraftCal() {
     const more = evs.length - shown.length;
     const meal = dc.meals[ds];
     /* 초안이 없는 날에만 나이스 실제 급식을 회색으로 겹쳐 보여준다 (초안 보호) */
-    const realMeal = (dc.showReal !== false && (!meal || !(meal.menus || []).length))
-      ? (dc.real || {})[ds] : null;
+    /* 보기 모드
+       - 실제 보기 켜짐: 나이스 실제가 있으면 그것을, 없으면 초안을 보여준다
+       - 실제 보기 꺼짐: 언제나 초안만 보여준다
+       두 개를 겹쳐 쌓지 않아 칸이 깔끔하다. 초안 자료는 어느 쪽에서도 지워지지 않는다. */
+    const realOne = (dc.showReal !== false) ? (dc.real || {})[ds] : null;
+    const useReal = !!(realOne && (realOne.menus || []).length);
+    const shownMeal = useReal ? realOne : meal;
 
     const offDay = calIsOffDay(ds);
 
@@ -10050,34 +10055,24 @@ function renderDraftCal() {
           ${more > 0 ? `<span class="cal-ev small cal-more">+${more}</span>` : ''}
         </div>
         ${
-          meal && ((meal.menus && meal.menus.length) || (meal.extra && meal.extra.length))
-            ? `<div class="cal-meal2">${
+          shownMeal && ((shownMeal.menus && shownMeal.menus.length) || (shownMeal.extra && shownMeal.extra.length))
+            ? `<div class="cal-meal2${useReal ? ' real' : ''}">${
                 CAL_CAT_ORDER.map(k => {
-                  const arr = calMealCats(meal)[k] || [];
+                  const arr = calMealCats(shownMeal)[k] || [];
                   return arr.length
                     ? `<div class="cmr"><b>${CAL_CAT_SHORT[k]}</b><span>${esc(arr.join(', '))}</span></div>`
                     : '';
                 }).join('') +
-                ((meal.extra || []).map(ex =>
+                ((shownMeal.extra || []).map(ex =>
                   `<div class="cmr ex"><b>${esc((ex.label || '자율').slice(0, 3))}</b><span>${esc((ex.items || []).join(', '))}</span></div>`
                 ).join(''))
               }</div>${
-                meal.src
-                  ? `<div class="cal-src">📎 ${esc(meal.src)}</div>`
-                  : ''
+                useReal
+                  ? `<div class="cal-src real">🍚 나이스 실제 급식${
+                      meal && (meal.menus || []).length ? ' · 초안 있음(토글로 보기)' : ''
+                    }</div>`
+                  : (shownMeal.src ? `<div class="cal-src">📎 ${esc(shownMeal.src)}</div>` : '')
               }`
-            : ''
-        }
-        ${
-          realMeal && (realMeal.menus || []).length
-            ? `<div class="cal-meal2 real">${
-                CAL_CAT_ORDER.map(k => {
-                  const arr = (realMeal.cats || {})[k] || [];
-                  return arr.length
-                    ? `<div class="cmr"><b>${CAL_CAT_SHORT[k]}</b><span>${esc(arr.join(', '))}</span></div>`
-                    : '';
-                }).join('')
-              }</div><div class="cal-src real">🍚 나이스 실제 급식</div>`
             : ''
         }
       </div>
@@ -10117,8 +10112,8 @@ function renderDraftCal() {
             🍚 나이스 우리학교 식단 불러오기
           </button>
           <button class="btn ghost small" id="calRealToggle"
-            title="캘린더 칸에서 나이스 실제 급식을 보이거나 감춥니다. 감춰도 자료는 그대로 있어요.">
-            ${dcShowReal ? '🙈 실제 급식 감추기' : '👁 실제 급식 보기'}
+            title="눌러서 보기를 바꿉니다. 어느 쪽으로 두든 초안과 실제 급식 자료는 둘 다 그대로 남아 있어요.">
+            ${dcShowReal ? '지금: 🍚 나이스 실제 → ✏️ 초안 보기' : '지금: ✏️ 초안 → 🍚 실제 보기'}
           </button>
           <button class="btn ghost small" id="calSchedPaste">
             📋 학사일정 붙여넣기
