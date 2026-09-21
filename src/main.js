@@ -9632,23 +9632,24 @@ if(window.SORI)applySoriProfileMine(window.SORI.profile);
    (특일·학사일정 + 스크랩·복붙 식단 배치)
 ═════════════════════════════════════════════ */
 
-/* ── 2차 연수 공개 전 베타 게이트 ──
+/* ── 연구회 전용 게이트 ──
    · 관리자(김소리) 계정은 항상 해제
-   · 수강생은 ?beta=SORI-2ND 링크로 접속하면 이 브라우저에서 해제 */
-const BETA2_CODE = 'SORI-2ND';
+   · 급식소리함 포털에서 연구회 코드를 입력한 계정만 해제
+     (정책실행연구회 = policy / 인성밥상연구회 = insung) */
 const BETA2_ADMIN = 'thfl4811@gmail.com';
+const SORI_GROUPS = ['policy', 'insung'];
 
 function soriBetaOn() {
   if (user && user.email === BETA2_ADMIN) return true;
-  return localStorage.getItem('archive_beta2') === BETA2_CODE;
+  try {
+    const gs = (window.SORI && window.SORI.profile && window.SORI.profile.groups) || [];
+    return SORI_GROUPS.some(g => gs.indexOf(g) > -1);
+  } catch (_) { return false; }
 }
 
-try {
-  const _q = new URLSearchParams(location.search);
-  if (_q.get('beta') === BETA2_CODE) {
-    localStorage.setItem('archive_beta2', BETA2_CODE);
-  }
-} catch (_) {}
+/* 게이트가 늦게 로드되면 화면을 한 번 다시 그린다 */
+window.addEventListener('sori-ready', function () { try { shell(); } catch (_) {} });
+
 
 /* ── 데이터 정규화·병합 ── */
 function normalizeDraftCal(v) {
